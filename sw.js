@@ -1,4 +1,4 @@
-const CACHE = "piksel-v5";
+const CACHE = "piksel-v6";
 const APP_SHELL = [
   "./",
   "./index.html",

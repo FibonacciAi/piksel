@@ -5,11 +5,13 @@ import {
   PIXEL_COUNT,
   blankFrame,
   canvasMetrics,
+  deleteFrameAt,
   effectFrames,
   floodFill,
   indexFor,
   linePoints,
   mirroredBrushCenter,
+  moveFrameAt,
   paintSquare,
   paintSquareInPlace,
   sparkleFrame,
@@ -45,6 +47,24 @@ test("live strokes can paint in place without changing frame geometry", () => {
   assert.equal(result, frame);
   assert.equal(frame.length, PIXEL_COUNT);
   assert.equal(frame.filter(Boolean).length, 4);
+});
+
+test("frames can be reordered without changing their pixel data", () => {
+  const red = paintSquare(blankFrame(), 1, 1, 1, "#ff0000");
+  const blue = paintSquare(blankFrame(), 2, 2, 1, "#0000ff");
+  const moved = moveFrameAt([red, blue], 1, 0);
+  assert.equal(moved[0][indexFor(2, 2)], "#0000ff");
+  assert.equal(moved[1][indexFor(1, 1)], "#ff0000");
+  assert.notEqual(moved[0], blue);
+});
+
+test("frame deletion keeps at least one frame", () => {
+  const first = paintSquare(blankFrame(), 1, 1, 1, "#ff0000");
+  const second = paintSquare(blankFrame(), 2, 2, 1, "#0000ff");
+  assert.equal(deleteFrameAt([first, second], 0).length, 1);
+  const protectedFrames = deleteFrameAt([first], 0);
+  assert.equal(protectedFrames.length, 1);
+  assert.deepEqual(protectedFrames[0], first);
 });
 
 test("fill changes one connected region without crossing another color", () => {
@@ -110,6 +130,12 @@ test("spark frames add only whole selected-color pixels", () => {
   const sparkled = sparkleFrame(source, "#ffd84d", 0);
   assert.ok(sparkled.filter((pixel) => pixel === "#ffd84d").length > 0);
   assert.equal(sparkled[indexFor(16, 16)], "#55b8ff");
+});
+
+test("spark can create a visible loop from a blank frame", () => {
+  const frames = effectFrames(blankFrame(), "spark", "#ffd84d");
+  assert.equal(frames.length, 8);
+  assert.ok(frames.some((frame) => frame.some(Boolean)));
 });
 
 test("even and odd mirrored brushes remain horizontally symmetric", () => {
