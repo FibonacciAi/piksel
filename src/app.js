@@ -9,7 +9,7 @@ import {
   indexFor,
   linePoints,
   mirroredBrushCenter,
-  paintSquare,
+  paintSquareInPlace,
 } from "./pixel-core.js";
 
 const STORAGE_KEY = "piksel.current-loop.v1";
@@ -38,7 +38,7 @@ const MAGIC_EFFECTS = [
   { id: "pulse", label: "Pulse", symbol: "◎" },
   { id: "spark", label: "Spark", symbol: "✦" },
 ];
-const PLAYBACK_SPEEDS = [2, 4, 8];
+const PLAYBACK_SPEEDS = [6, 12, 18];
 
 function paintRect(frame, x, y, width, height, color) {
   for (let yy = y; yy < y + height; yy += 1) {
@@ -161,7 +161,7 @@ const state = {
   pendingHistory: null,
   mirror: false,
   onionSkin: false,
-  playbackFps: 4,
+  playbackFps: 12,
 };
 
 const app = document.querySelector("#app");
@@ -333,37 +333,30 @@ function editorMarkup() {
         <div class="header-actions">
           <button class="icon-button play-button" type="button" aria-label="Play loop">
             <span class="play-icon" aria-hidden="true"></span>
+            <span class="play-word">Play</span>
           </button>
           <button class="icon-button share-button" type="button" aria-label="Share loop">
             <span class="share-icon" aria-hidden="true"></span>
+            <span>Share</span>
           </button>
         </div>
       </header>
 
       <div class="editor-body">
-        <div class="canvas-stage" aria-label="32 by 32 drawing canvas">
-          <canvas id="pixel-canvas" width="32" height="32"></canvas>
+        <div class="canvas-stack">
+          <div class="canvas-stage" aria-label="32 by 32 drawing canvas">
+            <canvas id="pixel-canvas" width="32" height="32"></canvas>
+          </div>
+          <div class="canvas-hud" aria-live="polite">
+            <span class="tool-status">Draw · 1 px</span>
+            <span class="frame-status">Frame 1 / ${state.frames.length} · ${state.playbackFps} fps</span>
+          </div>
         </div>
       </div>
 
       <section class="editor-tray" aria-label="Editing controls">
         <div class="frames-row">
           <div class="frame-strip" role="list" aria-label="Frames"></div>
-          <button class="tray-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
-            <span class="duplicate-icon" aria-hidden="true"></span>
-            <span>Copy</span>
-          </button>
-        </div>
-
-        <div class="magic-row" aria-label="One-tap animation">
-          <span class="magic-title"><span aria-hidden="true">✦</span>Magic</span>
-          <div class="magic-group">
-            ${MAGIC_EFFECTS.map(({ id, label, symbol }) => `
-              <button class="magic-button" type="button" data-effect="${id}" aria-label="Make a ${label.toLowerCase()} loop">
-                <span aria-hidden="true">${symbol}</span><span>${label}</span>
-              </button>
-            `).join("")}
-          </div>
         </div>
 
         <div class="drawing-controls">
@@ -377,7 +370,7 @@ function editorMarkup() {
           </div>
 
           <div class="color-row">
-            <span class="control-label">Color</span>
+            <span class="control-label">Ink</span>
             <div class="color-palette" role="group" aria-label="Quick colors">
               ${QUICK_COLORS.map(({ value, name }) => `
                 <button class="quick-color${state.color === value ? " is-selected" : ""}" type="button" data-color="${value}" aria-label="${name}" aria-pressed="${state.color === value}" style="--quick-color:${value}"></button>
@@ -390,28 +383,37 @@ function editorMarkup() {
             </div>
           </div>
 
-          <div class="assist-row">
-            <div class="helper-group" role="group" aria-label="Drawing helpers">
-              <button class="toggle-button mirror-button${state.mirror ? " is-selected" : ""}" type="button" aria-label="Mirror drawing" aria-pressed="${state.mirror}"><span aria-hidden="true">↔</span>Mirror</button>
-              <button class="toggle-button onion-button${state.onionSkin ? " is-selected" : ""}" type="button" aria-label="Onion skin" aria-pressed="${state.onionSkin}"><span class="onion-icon" aria-hidden="true"></span>Onion</button>
-            </div>
-            <div class="speed-control">
-              <span class="control-label">FPS</span>
-              <div class="speed-group" role="group" aria-label="Playback speed">
-                ${PLAYBACK_SPEEDS.map((fps) => `<button class="speed-button${fps === state.playbackFps ? " is-selected" : ""}" type="button" data-fps="${fps}" aria-label="${fps} frames per second" aria-pressed="${fps === state.playbackFps}">${fps}</button>`).join("")}
-              </div>
-            </div>
-          </div>
-
-          <div class="control-footer">
+          <div class="utility-row">
             <div class="history-group" role="group" aria-label="Edit history">
               <button class="utility-button undo-button" type="button"${state.undoStack.length ? "" : " disabled"}><span aria-hidden="true">↶</span>Undo</button>
               <button class="utility-button redo-button" type="button"${state.redoStack.length ? "" : " disabled"}><span aria-hidden="true">↷</span>Redo</button>
             </div>
+            <div class="helper-group" role="group" aria-label="Drawing helpers">
+              <button class="toggle-button mirror-button${state.mirror ? " is-selected" : ""}" type="button" aria-label="Mirror drawing" aria-pressed="${state.mirror}"><span aria-hidden="true">↔</span>Mirror</button>
+              <button class="toggle-button onion-button${state.onionSkin ? " is-selected" : ""}" type="button" aria-label="Onion skin" aria-pressed="${state.onionSkin}"><span class="onion-icon" aria-hidden="true"></span>Onion</button>
+            </div>
+            <button class="motion-trigger" type="button" aria-expanded="false" aria-controls="motion-panel"><span aria-hidden="true">✦</span>Animate</button>
+          </div>
+
+          <div class="motion-panel" id="motion-panel" aria-label="One-tap animation" hidden>
+            ${MAGIC_EFFECTS.map(({ id, label, symbol }) => `
+              <button class="magic-button" type="button" data-effect="${id}" aria-label="Make a ${label.toLowerCase()} loop">
+                <span aria-hidden="true">${symbol}</span><span>${label}</span>
+              </button>
+            `).join("")}
+          </div>
+
+          <div class="control-footer">
             <div class="brush-control">
-              <span class="control-label">Size</span>
+              <span class="control-label">Brush</span>
               <div class="brush-group" role="group" aria-label="Brush size">
                 ${[1, 2, 3, 4].map((size) => `<button class="brush-button${size === state.brushSize ? " is-selected" : ""}" type="button" data-size="${size}" aria-label="${size} pixel brush" aria-pressed="${size === state.brushSize}"><span class="brush-square" style="--dot-size:${3 + size * 2}px" aria-hidden="true"></span><span>${size}</span></button>`).join("")}
+              </div>
+            </div>
+            <div class="speed-control">
+              <span class="control-label">Speed</span>
+              <div class="speed-group" role="group" aria-label="Playback speed">
+                ${PLAYBACK_SPEEDS.map((fps) => `<button class="speed-button${fps === state.playbackFps ? " is-selected" : ""}" type="button" data-fps="${fps}" aria-label="${fps} frames per second" aria-pressed="${fps === state.playbackFps}">${fps}</button>`).join("")}
               </div>
             </div>
           </div>
@@ -429,6 +431,7 @@ function renderEditor() {
   const frameStrip = app.querySelector(".frame-strip");
   const colorInput = app.querySelector("#color-input");
   const colorSwatch = app.querySelector(".color-swatch");
+  let pendingCanvasRender = null;
   pixelContext.imageSmoothingEnabled = false;
 
   function captureSnapshot() {
@@ -510,6 +513,22 @@ function renderEditor() {
     drawFrame(pixelContext, state.frames[state.selectedFrame], true, onionFrame);
   }
 
+  function scheduleCanvasRender() {
+    if (pendingCanvasRender !== null) return;
+    pendingCanvasRender = requestAnimationFrame(() => {
+      pendingCanvasRender = null;
+      renderCanvas();
+    });
+  }
+
+  function updateHud() {
+    const tool = DRAWING_TOOLS.find(({ id }) => id === state.selectedTool)?.label ?? "Draw";
+    const toolStatus = app.querySelector(".tool-status");
+    const frameStatus = app.querySelector(".frame-status");
+    if (toolStatus) toolStatus.textContent = `${tool} · ${state.brushSize} px`;
+    if (frameStatus) frameStatus.textContent = `Frame ${state.selectedFrame + 1} / ${state.frames.length} · ${state.playbackFps} fps`;
+  }
+
   function renderThumbnail(index) {
     const canvas = frameStrip.querySelector(`.frame-card[data-frame="${index}"] canvas`);
     if (!canvas) return;
@@ -523,6 +542,7 @@ function renderEditor() {
       card.classList.toggle("is-selected", selected);
       card.setAttribute("aria-current", String(selected));
     });
+    updateHud();
   }
 
   function updateAssistControls() {
@@ -544,6 +564,9 @@ function renderEditor() {
       </button>
     `).join("") + `
       <button class="add-frame" type="button" aria-label="Add frame"><span aria-hidden="true">+</span><span>Frame</span></button>
+      <button class="tray-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
+        <span class="duplicate-icon" aria-hidden="true"></span><span>Copy</span>
+      </button>
     `;
 
     frameStrip.querySelectorAll(".frame-card").forEach((card) => {
@@ -560,9 +583,20 @@ function renderEditor() {
       saveLoop();
       renderFrames();
       renderCanvas();
-      requestAnimationFrame(() => frameStrip.scrollTo({ left: frameStrip.scrollWidth, behavior: "smooth" }));
+      requestAnimationFrame(() => frameStrip.scrollTo({ left: frameStrip.scrollWidth }));
+    });
+
+    frameStrip.querySelector(".duplicate-frame").addEventListener("click", () => {
+      const snapshot = captureSnapshot();
+      state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
+      state.selectedFrame += 1;
+      rememberSnapshot(snapshot);
+      saveLoop();
+      renderFrames();
+      renderCanvas();
     });
     updateAssistControls();
+    updateHud();
   }
 
   function selectFrame(index) {
@@ -578,6 +612,7 @@ function renderEditor() {
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    updateHud();
   }
 
   function setBrushSize(size) {
@@ -587,6 +622,7 @@ function renderEditor() {
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    updateHud();
   }
 
   function setPlaybackFps(fps) {
@@ -596,6 +632,7 @@ function renderEditor() {
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    updateHud();
     if (state.playing) setPlaying(true, renderCanvas, updateFrameSelection);
   }
 
@@ -626,6 +663,12 @@ function renderEditor() {
     renderFrames();
     renderCanvas();
     setPlaying(true, renderCanvas, updateFrameSelection);
+    const panel = app.querySelector(".motion-panel");
+    const trigger = app.querySelector(".motion-trigger");
+    if (panel && trigger) {
+      panel.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+    }
     showToast(`${magic.label} made 4 frames`);
   }
 
@@ -655,11 +698,10 @@ function renderEditor() {
       state.frames[state.selectedFrame] = floodFill(frame, x, y, state.color);
     } else {
       const color = state.selectedTool === "eraser" ? null : state.color;
-      let next = paintSquare(frame, x, y, state.brushSize, color);
+      paintSquareInPlace(frame, x, y, state.brushSize, color);
       if (state.mirror) {
-        next = paintSquare(next, mirroredBrushCenter(x, state.brushSize), y, state.brushSize, color);
+        paintSquareInPlace(frame, mirroredBrushCenter(x, state.brushSize), y, state.brushSize, color);
       }
-      state.frames[state.selectedFrame] = next;
     }
   }
 
@@ -681,32 +723,43 @@ function renderEditor() {
     }
 
     state.lastCell = cell;
-    renderCanvas();
-    renderThumbnail(state.selectedFrame);
   }
 
   pixelCanvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
+    if (state.playing) setPlaying(false, renderCanvas, updateFrameSelection);
     pixelCanvas.setPointerCapture(event.pointerId);
     const pointerTool = state.selectedTool;
     state.drawing = true;
     state.lastCell = null;
     if (pointerTool !== "eyedropper") beginHistoryStep();
     applyPointer(event);
+    renderCanvas();
     if (pointerTool === "fill" || pointerTool === "eyedropper") {
       state.drawing = false;
-      if (pointerTool === "fill" && commitHistoryStep()) saveLoop();
+      if (pointerTool === "fill" && commitHistoryStep()) {
+        saveLoop();
+        renderThumbnail(state.selectedFrame);
+      }
     }
   });
 
   pixelCanvas.addEventListener("pointermove", (event) => {
     if (!state.drawing || state.selectedTool === "fill" || state.selectedTool === "eyedropper") return;
     event.preventDefault();
-    applyPointer(event, true);
+    const coalesced = event.getCoalescedEvents?.();
+    const samples = coalesced?.length ? coalesced : [event];
+    samples.forEach((sample) => applyPointer(sample, true));
+    scheduleCanvasRender();
   });
 
-  function endDrawing() {
-    if (state.drawing && commitHistoryStep()) saveLoop();
+  function endDrawing(event) {
+    if (state.drawing && event.type === "pointerup") applyPointer(event, true);
+    if (state.drawing && commitHistoryStep()) {
+      saveLoop();
+      renderCanvas();
+      renderThumbnail(state.selectedFrame);
+    }
     state.drawing = false;
     state.lastCell = null;
   }
@@ -738,18 +791,14 @@ function renderEditor() {
     setColor(colorInput.value);
   });
 
-  app.querySelector(".duplicate-frame").addEventListener("click", () => {
-    const snapshot = captureSnapshot();
-    state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
-    state.selectedFrame += 1;
-    rememberSnapshot(snapshot);
-    saveLoop();
-    renderFrames();
-    renderCanvas();
-  });
-
   app.querySelector(".mirror-button").addEventListener("click", () => setMirror(!state.mirror));
   app.querySelector(".onion-button").addEventListener("click", () => setOnionSkin(!state.onionSkin));
+  app.querySelector(".motion-trigger").addEventListener("click", (event) => {
+    const panel = app.querySelector(".motion-panel");
+    const expanded = event.currentTarget.getAttribute("aria-expanded") === "true";
+    event.currentTarget.setAttribute("aria-expanded", String(!expanded));
+    panel.hidden = expanded;
+  });
 
   app.querySelector(".play-button").addEventListener("click", () => {
     setPlaying(!state.playing, renderCanvas, updateFrameSelection);
@@ -794,7 +843,10 @@ function setPlaying(playing, renderCanvas, updateFrameSelection) {
   const button = app.querySelector(".play-button");
   button?.classList.toggle("is-playing", playing);
   button?.setAttribute("aria-label", playing ? "Pause loop" : "Play loop");
+  const word = button?.querySelector(".play-word");
+  if (word) word.textContent = playing ? "Pause" : "Play";
   renderCanvas();
+  updateFrameSelection();
   if (playing) {
     state.playTimer = setInterval(() => {
       state.selectedFrame = (state.selectedFrame + 1) % state.frames.length;

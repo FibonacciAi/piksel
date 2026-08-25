@@ -19,15 +19,19 @@ export function isInside(x, y) {
 
 export function paintSquare(frame, x, y, size, color) {
   const next = cloneFrame(frame);
+  paintSquareInPlace(next, x, y, size, color);
+  return next;
+}
+
+export function paintSquareInPlace(frame, x, y, size, color) {
   const offset = Math.floor((size - 1) / 2);
 
   for (let yy = y - offset; yy < y - offset + size; yy += 1) {
     for (let xx = x - offset; xx < x - offset + size; xx += 1) {
-      if (isInside(xx, yy)) next[indexFor(xx, yy)] = color;
+      if (isInside(xx, yy)) frame[indexFor(xx, yy)] = color;
     }
   }
-
-  return next;
+  return frame;
 }
 
 export function floodFill(frame, x, y, color) {
