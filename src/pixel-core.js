@@ -95,11 +95,13 @@ export function translateFrame(frame, deltaX, deltaY) {
 
 export function scaleFrame(frame, scale) {
   const next = blankFrame();
-  const center = (GRID_SIZE - 1) / 2;
+  const { minX, minY, maxX, maxY } = frameBounds(frame);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
-      const sourceX = Math.round((x - center) / scale + center);
-      const sourceY = Math.round((y - center) / scale + center);
+      const sourceX = Math.round((x - centerX) / scale + centerX);
+      const sourceY = Math.round((y - centerY) / scale + centerY);
       if (isInside(sourceX, sourceY)) next[indexFor(x, y)] = frame[indexFor(sourceX, sourceY)];
     }
   }
@@ -151,16 +153,49 @@ export function sparkleFrame(frame, color, phase = 0) {
 export function effectFrames(frame, effect, color) {
   const base = cloneFrame(frame);
   if (effect === "bounce") {
-    return [base, translateFrame(base, 0, -1), base, translateFrame(base, 0, 1)].map(cloneFrame);
+    return [
+      base,
+      translateFrame(base, 0, -1),
+      translateFrame(base, 0, -2),
+      translateFrame(base, 0, -3),
+      translateFrame(base, 0, -2),
+      translateFrame(base, 0, -1),
+      base,
+      translateFrame(base, 0, 1),
+    ].map(cloneFrame);
   }
   if (effect === "wiggle") {
-    return [base, translateFrame(base, -1, 0), base, translateFrame(base, 1, 0)].map(cloneFrame);
+    return [
+      base,
+      translateFrame(base, -1, 0),
+      translateFrame(base, -2, 0),
+      translateFrame(base, -1, 0),
+      base,
+      translateFrame(base, 1, 0),
+      translateFrame(base, 2, 0),
+      translateFrame(base, 1, 0),
+    ].map(cloneFrame);
   }
   if (effect === "pulse") {
-    return [base, scaleFrame(base, 1.1), base, scaleFrame(base, 0.9)].map(cloneFrame);
+    const { minX, minY, maxX, maxY } = frameBounds(base);
+    const span = Math.max(maxX - minX + 1, maxY - minY + 1);
+    const high = span <= 5 ? 2 : span <= 12 ? 1.45 : 1.22;
+    const low = span <= 5 ? 0.4 : span <= 12 ? 0.68 : 0.82;
+    const rise = (1 + high) / 2;
+    const fall = (1 + low) / 2;
+    return [1, rise, high, rise, 1, fall, low, fall].map((scale) => scaleFrame(base, scale));
   }
   if (effect === "spark") {
-    return [base, sparkleFrame(base, color, 0), base, sparkleFrame(base, color, 1)].map(cloneFrame);
+    return [
+      base,
+      sparkleFrame(base, color, 0),
+      sparkleFrame(sparkleFrame(base, color, 0), color, 2),
+      sparkleFrame(base, color, 2),
+      base,
+      sparkleFrame(base, color, 1),
+      sparkleFrame(sparkleFrame(base, color, 1), color, 3),
+      sparkleFrame(base, color, 3),
+    ].map(cloneFrame);
   }
   return [base];
 }
