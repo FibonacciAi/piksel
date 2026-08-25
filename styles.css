@@ -105,6 +105,8 @@ input:focus-visible + span {
 .tray-action,
 .tool-button,
 .brush-button,
+.utility-button,
+.quick-color,
 .frame-card,
 .add-frame {
   border: 0;
@@ -128,8 +130,15 @@ input:focus-visible + span {
 .tray-action:active,
 .tool-button:active,
 .brush-button:active,
+.utility-button:active,
+.quick-color:active,
 .add-frame:active {
   background: rgba(255, 255, 255, 0.08);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.34;
 }
 
 .back-action {
@@ -246,8 +255,7 @@ input:focus-visible + span {
   background: var(--surface);
 }
 
-.frames-row,
-.drawing-row {
+.frames-row {
   display: flex;
   align-items: center;
 }
@@ -311,21 +319,38 @@ input:focus-visible + span {
 
 .add-frame {
   height: 56px;
+  align-content: center;
+  gap: 1px;
   place-items: center;
   border: 1px dashed rgba(255, 255, 255, 0.18);
   color: var(--muted);
-  font-size: 27px;
+}
+
+.add-frame > span:first-child {
+  font-size: 23px;
   font-weight: 300;
+  line-height: 22px;
+}
+
+.add-frame > span:last-child {
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 12px;
 }
 
 .tray-action {
-  display: grid;
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  place-items: center;
+  display: flex;
+  flex: 0 0 52px;
+  width: 52px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
   border-radius: 9px;
   color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .duplicate-icon {
@@ -347,42 +372,108 @@ input:focus-visible + span {
   content: "";
 }
 
-.drawing-row {
-  justify-content: space-between;
+.drawing-controls {
+  display: grid;
   gap: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
 
-.tool-group,
-.brush-group {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.tool-button,
-.color-button {
+.tool-group {
   display: grid;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  place-items: center;
-  border-radius: 9px;
-  color: #adb0b6;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
-.tool-button.is-selected,
-.brush-button.is-selected {
+.tool-button {
+  display: flex;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: #111317;
+  color: #adb0b6;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.tool-button.is-selected {
+  border-color: rgba(255, 216, 77, 0.32);
   background: var(--surface-raised);
   color: var(--text);
+}
+
+.tool-button.is-selected .tool-icon {
+  color: var(--accent);
 }
 
 .tool-icon {
   position: relative;
   display: block;
+  flex: 0 0 18px;
   width: 18px;
   height: 18px;
+}
+
+.color-row,
+.control-footer,
+.brush-control,
+.brush-group,
+.history-group,
+.color-palette {
+  display: flex;
+  align-items: center;
+}
+
+.color-row {
+  min-width: 0;
+  gap: 8px;
+}
+
+.control-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: 0.01em;
+}
+
+.color-palette {
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.quick-color {
+  position: relative;
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+
+.quick-color::before {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 5px;
+  background: var(--quick-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  content: "";
+}
+
+.quick-color.is-selected {
+  border-color: var(--accent);
+  background: rgba(255, 216, 77, 0.08);
 }
 
 .pencil-icon::before {
@@ -480,6 +571,18 @@ input:focus-visible + span {
 
 .color-button {
   position: relative;
+  display: flex;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 8px;
+  background: #111317;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 680;
   cursor: pointer;
 }
 
@@ -492,24 +595,73 @@ input:focus-visible + span {
 }
 
 .color-swatch {
-  width: 19px;
-  height: 19px;
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  border-radius: 5px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65);
+}
+
+.control-footer {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history-group,
+.brush-group {
+  gap: 4px;
+}
+
+.utility-button {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111317;
+  color: #c5c7cc;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.utility-button > span {
+  margin-top: -1px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.brush-control {
+  gap: 7px;
 }
 
 .brush-button {
   display: grid;
-  width: 31px;
-  height: 36px;
+  grid-template-rows: 11px 11px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 34px;
   padding: 0;
   place-items: center;
-  border-radius: 8px;
+  align-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: #b6b8bd;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
-.brush-button span {
+.brush-button.is-selected {
+  border-color: rgba(255, 216, 77, 0.42);
+  background: var(--surface-raised);
+  color: var(--accent);
+}
+
+.brush-square {
   width: var(--dot-size);
   height: var(--dot-size);
   border-radius: 1px;
@@ -734,13 +886,36 @@ input:focus-visible + span {
     display: none;
   }
 
-  .tool-button,
+  .tool-button {
+    gap: 4px;
+    padding-inline: 4px;
+    font-size: 11px;
+  }
+
+  .quick-color {
+    flex-basis: 27px;
+    width: 27px;
+    height: 30px;
+  }
+
+  .quick-color::before {
+    width: 18px;
+    height: 18px;
+  }
+
   .color-button {
-    width: 36px;
+    flex-basis: 46px;
+    width: 46px;
+    gap: 3px;
   }
 
   .brush-button {
-    width: 28px;
+    flex-basis: 29px;
+    width: 29px;
+  }
+
+  .utility-button {
+    padding-inline: 7px;
   }
 }
 
