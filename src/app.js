@@ -33,10 +33,10 @@ const DRAWING_TOOLS = [
   { id: "eyedropper", label: "Pick" },
 ];
 const MAGIC_EFFECTS = [
-  { id: "bounce", label: "Bounce", symbol: "↕" },
-  { id: "wiggle", label: "Wiggle", symbol: "↔" },
-  { id: "pulse", label: "Pulse", symbol: "◎" },
-  { id: "spark", label: "Spark", symbol: "✦" },
+  { id: "bounce", label: "Bounce", hint: "Up + down", symbol: "↕" },
+  { id: "wiggle", label: "Wiggle", hint: "Side to side", symbol: "↔" },
+  { id: "pulse", label: "Pulse", hint: "In + out", symbol: "◎" },
+  { id: "spark", label: "Spark", hint: "Twinkles", symbol: "✦" },
 ];
 const PLAYBACK_SPEEDS = [6, 12, 18];
 
@@ -162,6 +162,7 @@ const state = {
   mirror: false,
   onionSkin: false,
   playbackFps: 12,
+  motionName: null,
 };
 
 const app = document.querySelector("#app");
@@ -202,6 +203,7 @@ function useLoop(loop) {
   state.pendingHistory = null;
   state.mirror = false;
   state.onionSkin = false;
+  state.motionName = null;
   saveLoop();
   if (location.hash !== "#/editor") location.hash = "#/editor";
   else renderApp();
@@ -396,9 +398,9 @@ function editorMarkup() {
           </div>
 
           <div class="motion-panel" id="motion-panel" aria-label="One-tap animation" hidden>
-            ${MAGIC_EFFECTS.map(({ id, label, symbol }) => `
+            ${MAGIC_EFFECTS.map(({ id, label, hint, symbol }) => `
               <button class="magic-button" type="button" data-effect="${id}" aria-label="Make a ${label.toLowerCase()} loop">
-                <span aria-hidden="true">${symbol}</span><span>${label}</span>
+                <span aria-hidden="true">${symbol}</span><span><strong>${label}</strong><small>${hint}</small></span>
               </button>
             `).join("")}
           </div>
@@ -525,7 +527,9 @@ function renderEditor() {
     const tool = DRAWING_TOOLS.find(({ id }) => id === state.selectedTool)?.label ?? "Draw";
     const toolStatus = app.querySelector(".tool-status");
     const frameStatus = app.querySelector(".frame-status");
-    if (toolStatus) toolStatus.textContent = `${tool} · ${state.brushSize} px`;
+    if (toolStatus) toolStatus.textContent = state.playing && state.motionName
+      ? `${state.motionName} · Playing`
+      : `${tool} · ${state.brushSize} px`;
     if (frameStatus) frameStatus.textContent = `Frame ${state.selectedFrame + 1} / ${state.frames.length} · ${state.playbackFps} fps`;
   }
 
@@ -655,9 +659,14 @@ function renderEditor() {
     if (!magic) return;
     const snapshot = captureSnapshot();
     const source = cloneFrame(state.frames[state.selectedFrame]);
+    if (!source.some(Boolean)) {
+      showToast("Draw something first");
+      return;
+    }
     setPlaying(false, renderCanvas, updateFrameSelection);
     state.frames = effectFrames(source, effect, state.color);
     state.selectedFrame = 0;
+    state.motionName = magic.label;
     rememberSnapshot(snapshot);
     saveLoop();
     renderFrames();
@@ -669,7 +678,7 @@ function renderEditor() {
       panel.hidden = true;
       trigger.setAttribute("aria-expanded", "false");
     }
-    showToast(`${magic.label} made 4 frames`);
+    showToast(`${magic.label} · ${state.frames.length}-frame loop playing`);
   }
 
   function setColor(color) {
@@ -727,6 +736,7 @@ function renderEditor() {
 
   pixelCanvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
+    state.motionName = null;
     if (state.playing) setPlaying(false, renderCanvas, updateFrameSelection);
     pixelCanvas.setPointerCapture(event.pointerId);
     const pointerTool = state.selectedTool;

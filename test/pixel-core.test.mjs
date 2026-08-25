@@ -75,15 +75,34 @@ test("frame translation stays on the exact 32 by 32 source grid", () => {
   assert.equal(shifted.filter(Boolean).length, 1);
 });
 
-test("magic effects produce four independent crisp frames", () => {
+test("animation effects produce eight independent crisp frames", () => {
   const source = paintSquare(blankFrame(), 16, 16, 3, "#55b8ff");
   for (const effect of ["bounce", "wiggle", "pulse", "spark"]) {
     const frames = effectFrames(source, effect, "#ffd84d");
-    assert.equal(frames.length, 4);
+    assert.equal(frames.length, 8);
     frames.forEach((frame) => assert.equal(frame.length, PIXEL_COUNT));
     assert.notEqual(frames[0], source);
     assert.deepEqual(frames[0], source);
+    assert.ok(new Set(frames.map((frame) => frame.join(","))).size >= 4);
   }
+});
+
+test("bounce and wiggle travel far enough to read as motion", () => {
+  const source = paintSquare(blankFrame(), 16, 16, 1, "#55b8ff");
+  const bounce = effectFrames(source, "bounce", "#ffd84d");
+  const wiggle = effectFrames(source, "wiggle", "#ffd84d");
+  assert.equal(bounce[3][indexFor(16, 13)], "#55b8ff");
+  assert.equal(wiggle[2][indexFor(14, 16)], "#55b8ff");
+});
+
+test("pulse expands off-center art around itself", () => {
+  const source = paintSquare(blankFrame(), 5, 7, 3, "#55b8ff");
+  const pulse = effectFrames(source, "pulse", "#ffd84d");
+  const lit = pulse[2].flatMap((pixel, index) => pixel ? [{ x: index % GRID_SIZE, y: Math.floor(index / GRID_SIZE) }] : []);
+  const centerX = (Math.min(...lit.map(({ x }) => x)) + Math.max(...lit.map(({ x }) => x))) / 2;
+  const centerY = (Math.min(...lit.map(({ y }) => y)) + Math.max(...lit.map(({ y }) => y))) / 2;
+  assert.ok(Math.abs(centerX - 5) <= 0.5);
+  assert.ok(Math.abs(centerY - 7) <= 0.5);
 });
 
 test("spark frames add only whole selected-color pixels", () => {
