@@ -14,6 +14,22 @@ const STORAGE_KEY = "piksel.current-loop.v1";
 const CHECKER = ["#15171a", "#1b1e22"];
 const GRID_LINE = "rgba(255, 255, 255, 0.055)";
 const DEFAULT_COLOR = "#ffd84d";
+const HISTORY_LIMIT = 60;
+const QUICK_COLORS = [
+  { value: "#ffd84d", name: "Yellow" },
+  { value: "#ff6f7c", name: "Coral" },
+  { value: "#55b8ff", name: "Blue" },
+  { value: "#73f0bb", name: "Mint" },
+  { value: "#ad7cff", name: "Purple" },
+  { value: "#f6f2e8", name: "Cream" },
+  { value: "#202126", name: "Ink" },
+];
+const DRAWING_TOOLS = [
+  { id: "pencil", label: "Draw" },
+  { id: "eraser", label: "Erase" },
+  { id: "fill", label: "Fill" },
+  { id: "eyedropper", label: "Pick" },
+];
 
 function paintRect(frame, x, y, width, height, color) {
   for (let yy = y; yy < y + height; yy += 1) {
@@ -131,10 +147,14 @@ const state = {
   playTimer: null,
   drawing: false,
   lastCell: null,
+  undoStack: [],
+  redoStack: [],
+  pendingHistory: null,
 };
 
 const app = document.querySelector("#app");
 let activeResizeHandler = null;
+let activeKeydownHandler = null;
 
 function escapeText(value) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -165,6 +185,9 @@ function useLoop(loop) {
   state.selectedFrame = 0;
   state.selectedTool = "pencil";
   state.brushSize = 1;
+  state.undoStack = [];
+  state.redoStack = [];
+  state.pendingHistory = null;
   saveLoop();
   if (location.hash !== "#/editor") location.hash = "#/editor";
   else renderApp();
@@ -210,6 +233,8 @@ function renderHome() {
   stopPlayback();
   if (activeResizeHandler) window.removeEventListener("resize", activeResizeHandler);
   activeResizeHandler = null;
+  if (activeKeydownHandler) window.removeEventListener("keydown", activeKeydownHandler);
+  activeKeydownHandler = null;
   const wallLoops = [
     { name: state.name || "Untitled", frameSource: "current", index: 0 },
     { name: SAMPLE_LOOPS[1].name, frameSource: "sample", index: 1 },
@@ -301,23 +326,45 @@ function editorMarkup() {
           <div class="frame-strip" role="list" aria-label="Frames"></div>
           <button class="tray-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
             <span class="duplicate-icon" aria-hidden="true"></span>
+            <span>Copy</span>
           </button>
         </div>
 
-        <div class="drawing-row">
+        <div class="drawing-controls">
           <div class="tool-group" role="toolbar" aria-label="Drawing tools">
-            <button class="tool-button${state.selectedTool === "pencil" ? " is-selected" : ""}" type="button" data-tool="pencil" aria-label="Pencil" aria-pressed="${state.selectedTool === "pencil"}"><span class="tool-icon pencil-icon" aria-hidden="true"></span></button>
-            <button class="tool-button${state.selectedTool === "eraser" ? " is-selected" : ""}" type="button" data-tool="eraser" aria-label="Eraser" aria-pressed="${state.selectedTool === "eraser"}"><span class="tool-icon eraser-icon" aria-hidden="true"></span></button>
-            <button class="tool-button${state.selectedTool === "fill" ? " is-selected" : ""}" type="button" data-tool="fill" aria-label="Fill" aria-pressed="${state.selectedTool === "fill"}"><span class="tool-icon fill-icon" aria-hidden="true"></span></button>
-            <button class="tool-button${state.selectedTool === "eyedropper" ? " is-selected" : ""}" type="button" data-tool="eyedropper" aria-label="Eyedropper" aria-pressed="${state.selectedTool === "eyedropper"}"><span class="tool-icon eyedropper-icon" aria-hidden="true"></span></button>
-            <label class="color-button" aria-label="Drawing color">
-              <input id="color-input" type="color" value="${state.color}" />
-              <span class="color-swatch" aria-hidden="true" style="background:${state.color}"></span>
-            </label>
+            ${DRAWING_TOOLS.map(({ id, label }) => `
+              <button class="tool-button${state.selectedTool === id ? " is-selected" : ""}" type="button" data-tool="${id}" aria-label="${label}" aria-pressed="${state.selectedTool === id}">
+                <span class="tool-icon ${id}-icon" aria-hidden="true"></span>
+                <span>${label}</span>
+              </button>
+            `).join("")}
           </div>
 
-          <div class="brush-group" role="group" aria-label="Brush size">
-            ${[1, 2, 3, 4].map((size) => `<button class="brush-button${size === state.brushSize ? " is-selected" : ""}" type="button" data-size="${size}" aria-label="${size} pixel brush" aria-pressed="${size === state.brushSize}"><span style="--dot-size:${3 + size * 2}px" aria-hidden="true"></span></button>`).join("")}
+          <div class="color-row">
+            <span class="control-label">Color</span>
+            <div class="color-palette" role="group" aria-label="Quick colors">
+              ${QUICK_COLORS.map(({ value, name }) => `
+                <button class="quick-color${state.color === value ? " is-selected" : ""}" type="button" data-color="${value}" aria-label="${name}" aria-pressed="${state.color === value}" style="--quick-color:${value}"></button>
+              `).join("")}
+              <label class="color-button" aria-label="Choose another color">
+                <input id="color-input" type="color" value="${state.color}" />
+                <span class="color-swatch" aria-hidden="true" style="background:${state.color}"></span>
+                <span>More</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="control-footer">
+            <div class="history-group" role="group" aria-label="Edit history">
+              <button class="utility-button undo-button" type="button"${state.undoStack.length ? "" : " disabled"}><span aria-hidden="true">↶</span>Undo</button>
+              <button class="utility-button redo-button" type="button"${state.redoStack.length ? "" : " disabled"}><span aria-hidden="true">↷</span>Redo</button>
+            </div>
+            <div class="brush-control">
+              <span class="control-label">Size</span>
+              <div class="brush-group" role="group" aria-label="Brush size">
+                ${[1, 2, 3, 4].map((size) => `<button class="brush-button${size === state.brushSize ? " is-selected" : ""}" type="button" data-size="${size}" aria-label="${size} pixel brush" aria-pressed="${size === state.brushSize}"><span class="brush-square" style="--dot-size:${3 + size * 2}px" aria-hidden="true"></span><span>${size}</span></button>`).join("")}
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -334,6 +381,71 @@ function renderEditor() {
   const colorInput = app.querySelector("#color-input");
   const colorSwatch = app.querySelector(".color-swatch");
   pixelContext.imageSmoothingEnabled = false;
+
+  function captureSnapshot() {
+    return {
+      frames: state.frames.map(cloneFrame),
+      selectedFrame: state.selectedFrame,
+    };
+  }
+
+  function snapshotMatches(snapshot) {
+    if (!snapshot || snapshot.frames.length !== state.frames.length) return false;
+    return snapshot.frames.every((frame, frameIndex) => (
+      frame.every((pixel, pixelIndex) => pixel === state.frames[frameIndex][pixelIndex])
+    ));
+  }
+
+  function updateHistoryControls() {
+    const undoButton = app.querySelector(".undo-button");
+    const redoButton = app.querySelector(".redo-button");
+    if (undoButton) undoButton.disabled = state.undoStack.length === 0;
+    if (redoButton) redoButton.disabled = state.redoStack.length === 0;
+  }
+
+  function rememberSnapshot(snapshot) {
+    if (!snapshot || snapshotMatches(snapshot)) return false;
+    state.undoStack.push(snapshot);
+    if (state.undoStack.length > HISTORY_LIMIT) state.undoStack.shift();
+    state.redoStack = [];
+    updateHistoryControls();
+    return true;
+  }
+
+  function beginHistoryStep() {
+    state.pendingHistory = captureSnapshot();
+  }
+
+  function commitHistoryStep() {
+    const snapshot = state.pendingHistory;
+    state.pendingHistory = null;
+    return rememberSnapshot(snapshot);
+  }
+
+  function restoreSnapshot(snapshot) {
+    state.frames = snapshot.frames.map(cloneFrame);
+    state.selectedFrame = Math.min(snapshot.selectedFrame, state.frames.length - 1);
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+    updateHistoryControls();
+  }
+
+  function undo() {
+    if (!state.undoStack.length) return;
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.redoStack.push(captureSnapshot());
+    restoreSnapshot(state.undoStack.pop());
+    showToast("Undid last change");
+  }
+
+  function redo() {
+    if (!state.redoStack.length) return;
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.undoStack.push(captureSnapshot());
+    restoreSnapshot(state.redoStack.pop());
+    showToast("Redid last change");
+  }
 
   function resizeCanvas() {
     const { cellSize, canvasSize } = canvasMetrics(window.innerWidth, window.innerHeight);
@@ -368,7 +480,7 @@ function renderEditor() {
         <span>${index + 1}</span>
       </button>
     `).join("") + `
-      <button class="add-frame" type="button" aria-label="Add frame"><span aria-hidden="true">+</span></button>
+      <button class="add-frame" type="button" aria-label="Add frame"><span aria-hidden="true">+</span><span>Frame</span></button>
     `;
 
     frameStrip.querySelectorAll(".frame-card").forEach((card) => {
@@ -378,8 +490,10 @@ function renderEditor() {
     });
 
     frameStrip.querySelector(".add-frame").addEventListener("click", () => {
+      const snapshot = captureSnapshot();
       state.frames.push(blankFrame());
       state.selectedFrame = state.frames.length - 1;
+      rememberSnapshot(snapshot);
       saveLoop();
       renderFrames();
       renderCanvas();
@@ -411,6 +525,18 @@ function renderEditor() {
     });
   }
 
+  function setColor(color) {
+    state.color = color;
+    colorInput.value = color;
+    colorSwatch.style.background = color;
+    app.querySelectorAll(".quick-color").forEach((button) => {
+      const selected = button.dataset.color === color;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    setTool("pencil");
+  }
+
   function cellFromPointer(event) {
     const bounds = pixelCanvas.getBoundingClientRect();
     return {
@@ -433,12 +559,7 @@ function renderEditor() {
     const cell = cellFromPointer(event);
     if (state.selectedTool === "eyedropper") {
       const sampled = state.frames[state.selectedFrame][indexFor(cell.x, cell.y)];
-      if (sampled) {
-        state.color = sampled;
-        colorInput.value = sampled;
-        colorSwatch.style.background = sampled;
-        setTool("pencil");
-      }
+      if (sampled) setColor(sampled);
       return;
     }
 
@@ -459,12 +580,14 @@ function renderEditor() {
   pixelCanvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     pixelCanvas.setPointerCapture(event.pointerId);
+    const pointerTool = state.selectedTool;
     state.drawing = true;
     state.lastCell = null;
+    if (pointerTool !== "eyedropper") beginHistoryStep();
     applyPointer(event);
-    if (state.selectedTool === "fill" || state.selectedTool === "eyedropper") {
+    if (pointerTool === "fill" || pointerTool === "eyedropper") {
       state.drawing = false;
-      saveLoop();
+      if (pointerTool === "fill" && commitHistoryStep()) saveLoop();
     }
   });
 
@@ -475,7 +598,7 @@ function renderEditor() {
   });
 
   function endDrawing() {
-    if (state.drawing) saveLoop();
+    if (state.drawing && commitHistoryStep()) saveLoop();
     state.drawing = false;
     state.lastCell = null;
   }
@@ -491,15 +614,19 @@ function renderEditor() {
     button.addEventListener("click", () => setBrushSize(Number(button.dataset.size)));
   });
 
+  app.querySelectorAll(".quick-color").forEach((button) => {
+    button.addEventListener("click", () => setColor(button.dataset.color));
+  });
+
   colorInput.addEventListener("input", () => {
-    state.color = colorInput.value;
-    colorSwatch.style.background = state.color;
-    setTool("pencil");
+    setColor(colorInput.value);
   });
 
   app.querySelector(".duplicate-frame").addEventListener("click", () => {
+    const snapshot = captureSnapshot();
     state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
     state.selectedFrame += 1;
+    rememberSnapshot(snapshot);
     saveLoop();
     renderFrames();
     renderCanvas();
@@ -515,13 +642,24 @@ function renderEditor() {
   });
 
   app.querySelector(".share-button").addEventListener("click", shareLoop);
+  app.querySelector(".undo-button").addEventListener("click", undo);
+  app.querySelector(".redo-button").addEventListener("click", redo);
   if (activeResizeHandler) window.removeEventListener("resize", activeResizeHandler);
   activeResizeHandler = resizeCanvas;
   window.addEventListener("resize", activeResizeHandler, { passive: true });
+  if (activeKeydownHandler) window.removeEventListener("keydown", activeKeydownHandler);
+  activeKeydownHandler = (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
+    event.preventDefault();
+    if (event.shiftKey) redo();
+    else undo();
+  };
+  window.addEventListener("keydown", activeKeydownHandler);
 
   resizeCanvas();
   renderCanvas();
   renderFrames();
+  updateHistoryControls();
 }
 
 function stopPlayback() {
