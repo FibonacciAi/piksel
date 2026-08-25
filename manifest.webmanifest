@@ -1,0 +1,10 @@
+{
+  "name": "Piksel",
+  "short_name": "Piksel",
+  "description": "Pick a loop. Draw. Drop it on the wall.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0c0e",
+  "theme_color": "#0b0c0e"
+}
