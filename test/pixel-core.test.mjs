@@ -5,10 +5,14 @@ import {
   PIXEL_COUNT,
   blankFrame,
   canvasMetrics,
+  effectFrames,
   floodFill,
   indexFor,
   linePoints,
+  mirroredBrushCenter,
   paintSquare,
+  sparkleFrame,
+  translateFrame,
 } from "../src/pixel-core.js";
 
 test("a frame always represents exactly 32 by 32 source pixels", () => {
@@ -52,4 +56,42 @@ test("fast pointer movement produces an unbroken pixel line", () => {
     assert.ok(Math.abs(point.x - previous.x) <= 1);
     assert.ok(Math.abs(point.y - previous.y) <= 1);
   });
+});
+
+test("frame translation stays on the exact 32 by 32 source grid", () => {
+  const source = paintSquare(blankFrame(), 2, 3, 1, "#ffffff");
+  const shifted = translateFrame(source, -2, 4);
+  assert.equal(shifted.length, PIXEL_COUNT);
+  assert.equal(shifted[indexFor(0, 7)], "#ffffff");
+  assert.equal(shifted.filter(Boolean).length, 1);
+});
+
+test("magic effects produce four independent crisp frames", () => {
+  const source = paintSquare(blankFrame(), 16, 16, 3, "#55b8ff");
+  for (const effect of ["bounce", "wiggle", "pulse", "spark"]) {
+    const frames = effectFrames(source, effect, "#ffd84d");
+    assert.equal(frames.length, 4);
+    frames.forEach((frame) => assert.equal(frame.length, PIXEL_COUNT));
+    assert.notEqual(frames[0], source);
+    assert.deepEqual(frames[0], source);
+  }
+});
+
+test("spark frames add only whole selected-color pixels", () => {
+  const source = paintSquare(blankFrame(), 16, 16, 1, "#55b8ff");
+  const sparkled = sparkleFrame(source, "#ffd84d", 0);
+  assert.ok(sparkled.filter((pixel) => pixel === "#ffd84d").length > 0);
+  assert.equal(sparkled[indexFor(16, 16)], "#55b8ff");
+});
+
+test("even and odd mirrored brushes remain horizontally symmetric", () => {
+  for (const size of [1, 2, 3, 4]) {
+    let frame = paintSquare(blankFrame(), 3, 10, size, "#ffffff");
+    frame = paintSquare(frame, mirroredBrushCenter(3, size), 10, size, "#ffffff");
+    for (let y = 0; y < GRID_SIZE; y += 1) {
+      for (let x = 0; x < GRID_SIZE; x += 1) {
+        assert.equal(frame[indexFor(x, y)], frame[indexFor(GRID_SIZE - 1 - x, y)]);
+      }
+    }
+  }
 });
