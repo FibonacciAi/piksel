@@ -76,6 +76,96 @@ export function linePoints(fromX, fromY, toX, toY) {
   return points;
 }
 
+export function translateFrame(frame, deltaX, deltaY) {
+  const next = blankFrame();
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
+      const pixel = frame[indexFor(x, y)];
+      const targetX = x + deltaX;
+      const targetY = y + deltaY;
+      if (pixel && isInside(targetX, targetY)) next[indexFor(targetX, targetY)] = pixel;
+    }
+  }
+  return next;
+}
+
+export function scaleFrame(frame, scale) {
+  const next = blankFrame();
+  const center = (GRID_SIZE - 1) / 2;
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
+      const sourceX = Math.round((x - center) / scale + center);
+      const sourceY = Math.round((y - center) / scale + center);
+      if (isInside(sourceX, sourceY)) next[indexFor(x, y)] = frame[indexFor(sourceX, sourceY)];
+    }
+  }
+  return next;
+}
+
+function frameBounds(frame) {
+  let minX = GRID_SIZE;
+  let minY = GRID_SIZE;
+  let maxX = -1;
+  let maxY = -1;
+  frame.forEach((pixel, index) => {
+    if (!pixel) return;
+    const x = index % GRID_SIZE;
+    const y = Math.floor(index / GRID_SIZE);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  });
+  return maxX < 0 ? { minX: 12, minY: 12, maxX: 19, maxY: 19 } : { minX, minY, maxX, maxY };
+}
+
+export function sparkleFrame(frame, color, phase = 0) {
+  const next = cloneFrame(frame);
+  const { minX, minY, maxX, maxY } = frameBounds(frame);
+  const anchors = [
+    [minX - 2, minY - 2],
+    [maxX + 2, minY + 1],
+    [minX - 1, maxY + 2],
+    [maxX + 2, maxY - 1],
+    [Math.round((minX + maxX) / 2), minY - 3],
+    [maxX + 3, Math.round((minY + maxY) / 2)],
+    [3, 4],
+    [27, 25],
+  ];
+  const anchor = anchors[Math.abs(phase) % anchors.length];
+  const points = phase % 2 === 0
+    ? [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]
+    : [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+  points.forEach(([offsetX, offsetY]) => {
+    const x = anchor[0] + offsetX;
+    const y = anchor[1] + offsetY;
+    if (isInside(x, y) && next[indexFor(x, y)] === null) next[indexFor(x, y)] = color;
+  });
+  return next;
+}
+
+export function effectFrames(frame, effect, color) {
+  const base = cloneFrame(frame);
+  if (effect === "bounce") {
+    return [base, translateFrame(base, 0, -1), base, translateFrame(base, 0, 1)].map(cloneFrame);
+  }
+  if (effect === "wiggle") {
+    return [base, translateFrame(base, -1, 0), base, translateFrame(base, 1, 0)].map(cloneFrame);
+  }
+  if (effect === "pulse") {
+    return [base, scaleFrame(base, 1.1), base, scaleFrame(base, 0.9)].map(cloneFrame);
+  }
+  if (effect === "spark") {
+    return [base, sparkleFrame(base, color, 0), base, sparkleFrame(base, color, 1)].map(cloneFrame);
+  }
+  return [base];
+}
+
+export function mirroredBrushCenter(x, size) {
+  const offset = Math.floor((size - 1) / 2);
+  return GRID_SIZE - x + offset * 2 - size;
+}
+
 export function canvasMetrics(viewportWidth, viewportHeight) {
   const horizontalRoom = Math.max(160, viewportWidth - 40);
   const verticalRoom = Math.max(160, viewportHeight - 300);

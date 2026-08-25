@@ -4,9 +4,11 @@ import {
   blankFrame,
   canvasMetrics,
   cloneFrame,
+  effectFrames,
   floodFill,
   indexFor,
   linePoints,
+  mirroredBrushCenter,
   paintSquare,
 } from "./pixel-core.js";
 
@@ -30,6 +32,13 @@ const DRAWING_TOOLS = [
   { id: "fill", label: "Fill" },
   { id: "eyedropper", label: "Pick" },
 ];
+const MAGIC_EFFECTS = [
+  { id: "bounce", label: "Bounce", symbol: "↕" },
+  { id: "wiggle", label: "Wiggle", symbol: "↔" },
+  { id: "pulse", label: "Pulse", symbol: "◎" },
+  { id: "spark", label: "Spark", symbol: "✦" },
+];
+const PLAYBACK_SPEEDS = [2, 4, 8];
 
 function paintRect(frame, x, y, width, height, color) {
   for (let yy = y; yy < y + height; yy += 1) {
@@ -150,6 +159,9 @@ const state = {
   undoStack: [],
   redoStack: [],
   pendingHistory: null,
+  mirror: false,
+  onionSkin: false,
+  playbackFps: 4,
 };
 
 const app = document.querySelector("#app");
@@ -188,19 +200,31 @@ function useLoop(loop) {
   state.undoStack = [];
   state.redoStack = [];
   state.pendingHistory = null;
+  state.mirror = false;
+  state.onionSkin = false;
   saveLoop();
   if (location.hash !== "#/editor") location.hash = "#/editor";
   else renderApp();
 }
 
-function drawFrame(context, frame, includeChecker = true) {
+function mixPixelColor(foreground, background, opacity) {
+  const channel = (color, offset) => Number.parseInt(color.slice(offset, offset + 2), 16);
+  const mixed = [1, 3, 5].map((offset) => Math.round(
+    channel(foreground, offset) * opacity + channel(background, offset) * (1 - opacity),
+  ));
+  return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function drawFrame(context, frame, includeChecker = true, onionFrame = null) {
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
       const pixel = frame[indexFor(x, y)];
-      if (pixel || includeChecker) {
-        context.fillStyle = pixel ?? CHECKER[(x + y) % 2];
+      const checker = CHECKER[(x + y) % 2];
+      const onionPixel = onionFrame?.[indexFor(x, y)];
+      if (pixel || onionPixel || includeChecker) {
+        context.fillStyle = pixel ?? (onionPixel ? mixPixelColor(onionPixel, checker, 0.3) : checker);
         context.fillRect(x, y, 1, 1);
       }
     }
@@ -247,6 +271,7 @@ function renderHome() {
       <header class="home-header">
         <h1>Piksel</h1>
         <p>Pick a loop. Draw. Drop it on the wall.</p>
+        <div class="home-magic-note"><span aria-hidden="true">✦</span><strong>Magic motion</strong><span>One frame → four-frame loop</span></div>
       </header>
 
       <div class="home-content">
@@ -330,6 +355,17 @@ function editorMarkup() {
           </button>
         </div>
 
+        <div class="magic-row" aria-label="One-tap animation">
+          <span class="magic-title"><span aria-hidden="true">✦</span>Magic</span>
+          <div class="magic-group">
+            ${MAGIC_EFFECTS.map(({ id, label, symbol }) => `
+              <button class="magic-button" type="button" data-effect="${id}" aria-label="Make a ${label.toLowerCase()} loop">
+                <span aria-hidden="true">${symbol}</span><span>${label}</span>
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
         <div class="drawing-controls">
           <div class="tool-group" role="toolbar" aria-label="Drawing tools">
             ${DRAWING_TOOLS.map(({ id, label }) => `
@@ -351,6 +387,19 @@ function editorMarkup() {
                 <span class="color-swatch" aria-hidden="true" style="background:${state.color}"></span>
                 <span>More</span>
               </label>
+            </div>
+          </div>
+
+          <div class="assist-row">
+            <div class="helper-group" role="group" aria-label="Drawing helpers">
+              <button class="toggle-button mirror-button${state.mirror ? " is-selected" : ""}" type="button" aria-label="Mirror drawing" aria-pressed="${state.mirror}"><span aria-hidden="true">↔</span>Mirror</button>
+              <button class="toggle-button onion-button${state.onionSkin ? " is-selected" : ""}" type="button" aria-label="Onion skin" aria-pressed="${state.onionSkin}"><span class="onion-icon" aria-hidden="true"></span>Onion</button>
+            </div>
+            <div class="speed-control">
+              <span class="control-label">FPS</span>
+              <div class="speed-group" role="group" aria-label="Playback speed">
+                ${PLAYBACK_SPEEDS.map((fps) => `<button class="speed-button${fps === state.playbackFps ? " is-selected" : ""}" type="button" data-fps="${fps}" aria-label="${fps} frames per second" aria-pressed="${fps === state.playbackFps}">${fps}</button>`).join("")}
+              </div>
             </div>
           </div>
 
@@ -455,7 +504,10 @@ function renderEditor() {
   }
 
   function renderCanvas() {
-    drawFrame(pixelContext, state.frames[state.selectedFrame]);
+    const onionFrame = state.onionSkin && !state.playing && state.frames.length > 1
+      ? state.frames[(state.selectedFrame - 1 + state.frames.length) % state.frames.length]
+      : null;
+    drawFrame(pixelContext, state.frames[state.selectedFrame], true, onionFrame);
   }
 
   function renderThumbnail(index) {
@@ -471,6 +523,17 @@ function renderEditor() {
       card.classList.toggle("is-selected", selected);
       card.setAttribute("aria-current", String(selected));
     });
+  }
+
+  function updateAssistControls() {
+    const mirrorButton = app.querySelector(".mirror-button");
+    const onionButton = app.querySelector(".onion-button");
+    if (state.frames.length < 2) state.onionSkin = false;
+    mirrorButton?.classList.toggle("is-selected", state.mirror);
+    mirrorButton?.setAttribute("aria-pressed", String(state.mirror));
+    onionButton?.classList.toggle("is-selected", state.onionSkin);
+    onionButton?.setAttribute("aria-pressed", String(state.onionSkin));
+    if (onionButton) onionButton.disabled = state.frames.length < 2;
   }
 
   function renderFrames() {
@@ -499,6 +562,7 @@ function renderEditor() {
       renderCanvas();
       requestAnimationFrame(() => frameStrip.scrollTo({ left: frameStrip.scrollWidth, behavior: "smooth" }));
     });
+    updateAssistControls();
   }
 
   function selectFrame(index) {
@@ -523,6 +587,46 @@ function renderEditor() {
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+  }
+
+  function setPlaybackFps(fps) {
+    state.playbackFps = fps;
+    app.querySelectorAll(".speed-button").forEach((button) => {
+      const selected = Number(button.dataset.fps) === fps;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    if (state.playing) setPlaying(true, renderCanvas, updateFrameSelection);
+  }
+
+  function setMirror(enabled) {
+    state.mirror = enabled;
+    updateAssistControls();
+    showToast(enabled ? "Mirror on" : "Mirror off");
+  }
+
+  function setOnionSkin(enabled) {
+    if (state.frames.length < 2) return;
+    state.onionSkin = enabled;
+    updateAssistControls();
+    renderCanvas();
+    showToast(enabled ? "Onion skin on" : "Onion skin off");
+  }
+
+  function makeMagicLoop(effect) {
+    const magic = MAGIC_EFFECTS.find((item) => item.id === effect);
+    if (!magic) return;
+    const snapshot = captureSnapshot();
+    const source = cloneFrame(state.frames[state.selectedFrame]);
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.frames = effectFrames(source, effect, state.color);
+    state.selectedFrame = 0;
+    rememberSnapshot(snapshot);
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+    setPlaying(true, renderCanvas, updateFrameSelection);
+    showToast(`${magic.label} made 4 frames`);
   }
 
   function setColor(color) {
@@ -551,7 +655,11 @@ function renderEditor() {
       state.frames[state.selectedFrame] = floodFill(frame, x, y, state.color);
     } else {
       const color = state.selectedTool === "eraser" ? null : state.color;
-      state.frames[state.selectedFrame] = paintSquare(frame, x, y, state.brushSize, color);
+      let next = paintSquare(frame, x, y, state.brushSize, color);
+      if (state.mirror) {
+        next = paintSquare(next, mirroredBrushCenter(x, state.brushSize), y, state.brushSize, color);
+      }
+      state.frames[state.selectedFrame] = next;
     }
   }
 
@@ -614,6 +722,14 @@ function renderEditor() {
     button.addEventListener("click", () => setBrushSize(Number(button.dataset.size)));
   });
 
+  app.querySelectorAll(".speed-button").forEach((button) => {
+    button.addEventListener("click", () => setPlaybackFps(Number(button.dataset.fps)));
+  });
+
+  app.querySelectorAll(".magic-button").forEach((button) => {
+    button.addEventListener("click", () => makeMagicLoop(button.dataset.effect));
+  });
+
   app.querySelectorAll(".quick-color").forEach((button) => {
     button.addEventListener("click", () => setColor(button.dataset.color));
   });
@@ -631,6 +747,9 @@ function renderEditor() {
     renderFrames();
     renderCanvas();
   });
+
+  app.querySelector(".mirror-button").addEventListener("click", () => setMirror(!state.mirror));
+  app.querySelector(".onion-button").addEventListener("click", () => setOnionSkin(!state.onionSkin));
 
   app.querySelector(".play-button").addEventListener("click", () => {
     setPlaying(!state.playing, renderCanvas, updateFrameSelection);
@@ -660,6 +779,7 @@ function renderEditor() {
   renderCanvas();
   renderFrames();
   updateHistoryControls();
+  updateAssistControls();
 }
 
 function stopPlayback() {
@@ -674,12 +794,13 @@ function setPlaying(playing, renderCanvas, updateFrameSelection) {
   const button = app.querySelector(".play-button");
   button?.classList.toggle("is-playing", playing);
   button?.setAttribute("aria-label", playing ? "Pause loop" : "Play loop");
+  renderCanvas();
   if (playing) {
     state.playTimer = setInterval(() => {
       state.selectedFrame = (state.selectedFrame + 1) % state.frames.length;
       renderCanvas();
       updateFrameSelection();
-    }, 360);
+    }, 1000 / state.playbackFps);
   }
 }
 
