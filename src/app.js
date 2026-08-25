@@ -1,0 +1,652 @@
+import {
+  GRID_SIZE,
+  PIXEL_COUNT,
+  blankFrame,
+  canvasMetrics,
+  cloneFrame,
+  floodFill,
+  indexFor,
+  linePoints,
+  paintSquare,
+} from "./pixel-core.js";
+
+const STORAGE_KEY = "piksel.current-loop.v1";
+const CHECKER = ["#15171a", "#1b1e22"];
+const GRID_LINE = "rgba(255, 255, 255, 0.055)";
+const DEFAULT_COLOR = "#ffd84d";
+
+function paintRect(frame, x, y, width, height, color) {
+  for (let yy = y; yy < y + height; yy += 1) {
+    for (let xx = x; xx < x + width; xx += 1) {
+      frame[indexFor(xx, yy)] = color;
+    }
+  }
+}
+
+function makeCopeFrame(step = 0) {
+  const frame = blankFrame();
+  const ink = "#202126";
+  const body = "#ffcf43";
+  const cheek = "#ff6f7c";
+  const shadow = "#e49a2d";
+  const lift = step === 1 ? -1 : 0;
+
+  paintRect(frame, 9, 9 + lift, 14, 17, body);
+  paintRect(frame, 7, 12 + lift, 18, 11, body);
+  paintRect(frame, 10, 7 + lift, 12, 2, body);
+  paintRect(frame, 8, 23 + lift, 16, 2, shadow);
+  paintRect(frame, 11, 13 + lift, 3, 3, ink);
+  paintRect(frame, 19, 13 + lift, 3, 3, ink);
+  paintRect(frame, 12, 18 + lift, 2, 2, cheek);
+  paintRect(frame, 20, 18 + lift, 2, 2, cheek);
+  paintRect(frame, 15, 18 + lift, 4, 1, ink);
+  paintRect(frame, 14, 19 + lift, 6, 1, ink);
+  paintRect(frame, 10 + step, 25 + lift, 4, 2, ink);
+  paintRect(frame, 19 - step, 25 + lift, 4, 2, ink);
+  return frame;
+}
+
+function makeBlinkFrame(closed = false) {
+  const frame = blankFrame();
+  const blue = "#55b8ff";
+  const ink = "#132232";
+  const shine = "#d7f5ff";
+  paintRect(frame, 8, 8, 16, 17, blue);
+  paintRect(frame, 6, 12, 20, 10, blue);
+  paintRect(frame, 10, 6, 12, 2, blue);
+  if (closed) {
+    paintRect(frame, 10, 15, 5, 1, ink);
+    paintRect(frame, 19, 15, 5, 1, ink);
+  } else {
+    paintRect(frame, 11, 13, 4, 5, ink);
+    paintRect(frame, 20, 13, 4, 5, ink);
+    paintRect(frame, 12, 13, 1, 1, shine);
+    paintRect(frame, 21, 13, 1, 1, shine);
+  }
+  paintRect(frame, 14, 21, 7, 1, ink);
+  return frame;
+}
+
+function makeOrbitFrame(step = 0) {
+  const frame = blankFrame();
+  const purple = "#ad7cff";
+  const mint = "#73f0bb";
+  const core = "#f6f2e8";
+  paintRect(frame, 13, 13, 7, 7, purple);
+  paintRect(frame, 15, 15, 3, 3, core);
+  const points = [
+    [16, 6], [22, 9], [25, 16], [22, 23], [16, 26], [9, 22], [6, 16], [9, 9],
+  ];
+  points.forEach((_, index) => {
+    const shifted = points[(index + step) % points.length];
+    paintRect(frame, shifted[0], shifted[1], 2, 2, index % 2 ? mint : purple);
+  });
+  return frame;
+}
+
+function makeWaveFrame(step = 0) {
+  const frame = blankFrame();
+  const pink = "#ff788d";
+  const cream = "#fff0c2";
+  for (let x = 5; x < 27; x += 1) {
+    const y = 15 + Math.round(Math.sin((x + step * 2) * 0.58) * 4);
+    paintRect(frame, x, y, 1, 3, pink);
+    if (x % 4 === 0) frame[indexFor(x, y - 1)] = cream;
+  }
+  return frame;
+}
+
+const SAMPLE_LOOPS = [
+  { name: "Cope", frames: [makeCopeFrame(0), makeCopeFrame(1), makeCopeFrame(2)] },
+  { name: "Blink", frames: [makeBlinkFrame(false), makeBlinkFrame(true), makeBlinkFrame(false)] },
+  { name: "Orbit", frames: [0, 1, 2, 3].map(makeOrbitFrame) },
+  { name: "Wave", frames: [0, 1, 2].map(makeWaveFrame) },
+];
+
+function validFrame(frame) {
+  return Array.isArray(frame) && frame.length === PIXEL_COUNT && frame.every((pixel) => pixel === null || /^#[0-9a-f]{6}$/i.test(pixel));
+}
+
+function storedLoop() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (typeof parsed?.name === "string" && Array.isArray(parsed.frames) && parsed.frames.length > 0 && parsed.frames.every(validFrame)) {
+      return { name: parsed.name.slice(0, 48), frames: parsed.frames.map(cloneFrame) };
+    }
+  } catch {
+    // Device storage is optional; the editor still works without it.
+  }
+  return { name: SAMPLE_LOOPS[0].name, frames: SAMPLE_LOOPS[0].frames.map(cloneFrame) };
+}
+
+const initialLoop = storedLoop();
+const state = {
+  name: initialLoop.name,
+  frames: initialLoop.frames,
+  selectedFrame: 0,
+  selectedTool: "pencil",
+  brushSize: 1,
+  color: DEFAULT_COLOR,
+  playing: false,
+  playTimer: null,
+  drawing: false,
+  lastCell: null,
+};
+
+const app = document.querySelector("#app");
+let activeResizeHandler = null;
+
+function escapeText(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;",
+  })[character]);
+}
+
+function saveLoop() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1,
+      name: state.name,
+      frames: state.frames,
+    }));
+  } catch {
+    // Private browsing or a full storage quota should not stop drawing.
+  }
+}
+
+function useLoop(loop) {
+  stopPlayback();
+  state.name = loop.name || "Untitled";
+  state.frames = loop.frames.map(cloneFrame);
+  state.selectedFrame = 0;
+  state.selectedTool = "pencil";
+  state.brushSize = 1;
+  saveLoop();
+  if (location.hash !== "#/editor") location.hash = "#/editor";
+  else renderApp();
+}
+
+function drawFrame(context, frame, includeChecker = true) {
+  context.imageSmoothingEnabled = false;
+  context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
+      const pixel = frame[indexFor(x, y)];
+      if (pixel || includeChecker) {
+        context.fillStyle = pixel ?? CHECKER[(x + y) % 2];
+        context.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+}
+
+function paintPreviewCanvases(root = document) {
+  root.querySelectorAll("canvas[data-preview]").forEach((canvas) => {
+    const loopIndex = Number(canvas.dataset.preview);
+    const source = canvas.dataset.source === "current"
+      ? state.frames[0]
+      : SAMPLE_LOOPS[loopIndex]?.frames[0];
+    if (!source) return;
+    const context = canvas.getContext("2d", { alpha: false });
+    drawFrame(context, source);
+  });
+}
+
+function loopCard({ name, frameSource, index, compact = false }) {
+  const source = frameSource === "current" ? "current" : "sample";
+  return `
+    <button class="loop-card${compact ? " is-compact" : ""}" type="button" data-open-loop="${frameSource === "current" ? "current" : index}" aria-label="Open ${escapeText(name)}">
+      <span class="loop-preview"><canvas width="32" height="32" data-preview="${index}" data-source="${source}"></canvas></span>
+      <span class="loop-card-name">${escapeText(name || "Untitled")}</span>
+    </button>
+  `;
+}
+
+function renderHome() {
+  stopPlayback();
+  if (activeResizeHandler) window.removeEventListener("resize", activeResizeHandler);
+  activeResizeHandler = null;
+  const wallLoops = [
+    { name: state.name || "Untitled", frameSource: "current", index: 0 },
+    { name: SAMPLE_LOOPS[1].name, frameSource: "sample", index: 1 },
+    { name: SAMPLE_LOOPS[2].name, frameSource: "sample", index: 2 },
+    { name: SAMPLE_LOOPS[3].name, frameSource: "sample", index: 3 },
+  ];
+
+  app.innerHTML = `
+    <section class="app-shell home-screen" aria-label="Piksel home">
+      <header class="home-header">
+        <h1>Piksel</h1>
+        <p>Pick a loop. Draw. Drop it on the wall.</p>
+      </header>
+
+      <div class="home-content">
+        <section aria-labelledby="wall-title">
+          <div class="section-heading"><h2 id="wall-title">The wall</h2></div>
+          <div class="wall-grid">
+            ${wallLoops.map(loopCard).join("")}
+          </div>
+        </section>
+
+        <section class="featured-section" aria-labelledby="greg-title">
+          <div class="section-heading"><h2 id="greg-title">Greg</h2><span>Featured loops</span></div>
+          <div class="featured-row">
+            ${SAMPLE_LOOPS.slice(0, 3).map((loop, index) => loopCard({ name: loop.name, frameSource: "sample", index, compact: true })).join("")}
+          </div>
+        </section>
+
+        <div class="start-actions" aria-label="Start a loop">
+          <label class="start-button photo-button">
+            <input id="photo-input" type="file" accept="image/*" />
+            <span class="photo-icon" aria-hidden="true"></span>
+            <span>From a photo</span>
+          </label>
+          <button class="start-button blank-button" type="button">
+            <span class="blank-icon" aria-hidden="true">+</span>
+            <span>Start blank</span>
+          </button>
+        </div>
+      </div>
+      <div class="status-toast" role="status" aria-live="polite"></div>
+    </section>
+  `;
+
+  paintPreviewCanvases(app);
+
+  app.querySelectorAll("[data-open-loop]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const source = button.dataset.openLoop;
+      if (source === "current") useLoop({ name: state.name, frames: state.frames });
+      else useLoop(SAMPLE_LOOPS[Number(source)]);
+    });
+  });
+
+  app.querySelector(".blank-button").addEventListener("click", () => {
+    useLoop({ name: "Untitled", frames: [blankFrame()] });
+  });
+
+  app.querySelector("#photo-input").addEventListener("change", importPhoto);
+}
+
+function editorMarkup() {
+  return `
+    <section class="app-shell editor-screen" aria-label="Piksel editor">
+      <header class="editor-header">
+        <button class="header-action back-action" type="button" aria-label="Back to home">
+          <span aria-hidden="true">‹</span><span class="back-word">Back</span>
+        </button>
+        <h1 class="loop-name">${escapeText(state.name || "Untitled")}</h1>
+        <div class="header-actions">
+          <button class="icon-button play-button" type="button" aria-label="Play loop">
+            <span class="play-icon" aria-hidden="true"></span>
+          </button>
+          <button class="icon-button share-button" type="button" aria-label="Share loop">
+            <span class="share-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="editor-body">
+        <div class="canvas-stage" aria-label="32 by 32 drawing canvas">
+          <canvas id="pixel-canvas" width="32" height="32"></canvas>
+        </div>
+      </div>
+
+      <section class="editor-tray" aria-label="Editing controls">
+        <div class="frames-row">
+          <div class="frame-strip" role="list" aria-label="Frames"></div>
+          <button class="tray-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
+            <span class="duplicate-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <div class="drawing-row">
+          <div class="tool-group" role="toolbar" aria-label="Drawing tools">
+            <button class="tool-button${state.selectedTool === "pencil" ? " is-selected" : ""}" type="button" data-tool="pencil" aria-label="Pencil" aria-pressed="${state.selectedTool === "pencil"}"><span class="tool-icon pencil-icon" aria-hidden="true"></span></button>
+            <button class="tool-button${state.selectedTool === "eraser" ? " is-selected" : ""}" type="button" data-tool="eraser" aria-label="Eraser" aria-pressed="${state.selectedTool === "eraser"}"><span class="tool-icon eraser-icon" aria-hidden="true"></span></button>
+            <button class="tool-button${state.selectedTool === "fill" ? " is-selected" : ""}" type="button" data-tool="fill" aria-label="Fill" aria-pressed="${state.selectedTool === "fill"}"><span class="tool-icon fill-icon" aria-hidden="true"></span></button>
+            <button class="tool-button${state.selectedTool === "eyedropper" ? " is-selected" : ""}" type="button" data-tool="eyedropper" aria-label="Eyedropper" aria-pressed="${state.selectedTool === "eyedropper"}"><span class="tool-icon eyedropper-icon" aria-hidden="true"></span></button>
+            <label class="color-button" aria-label="Drawing color">
+              <input id="color-input" type="color" value="${state.color}" />
+              <span class="color-swatch" aria-hidden="true" style="background:${state.color}"></span>
+            </label>
+          </div>
+
+          <div class="brush-group" role="group" aria-label="Brush size">
+            ${[1, 2, 3, 4].map((size) => `<button class="brush-button${size === state.brushSize ? " is-selected" : ""}" type="button" data-size="${size}" aria-label="${size} pixel brush" aria-pressed="${size === state.brushSize}"><span style="--dot-size:${3 + size * 2}px" aria-hidden="true"></span></button>`).join("")}
+          </div>
+        </div>
+      </section>
+      <div class="status-toast" role="status" aria-live="polite"></div>
+    </section>
+  `;
+}
+
+function renderEditor() {
+  app.innerHTML = editorMarkup();
+  const pixelCanvas = app.querySelector("#pixel-canvas");
+  const pixelContext = pixelCanvas.getContext("2d", { alpha: false });
+  const frameStrip = app.querySelector(".frame-strip");
+  const colorInput = app.querySelector("#color-input");
+  const colorSwatch = app.querySelector(".color-swatch");
+  pixelContext.imageSmoothingEnabled = false;
+
+  function resizeCanvas() {
+    const { cellSize, canvasSize } = canvasMetrics(window.innerWidth, window.innerHeight);
+    document.documentElement.style.setProperty("--cell-size", `${cellSize}px`);
+    document.documentElement.style.setProperty("--canvas-size", `${canvasSize}px`);
+    document.documentElement.style.setProperty("--grid-line", GRID_LINE);
+  }
+
+  function renderCanvas() {
+    drawFrame(pixelContext, state.frames[state.selectedFrame]);
+  }
+
+  function renderThumbnail(index) {
+    const canvas = frameStrip.querySelector(`.frame-card[data-frame="${index}"] canvas`);
+    if (!canvas) return;
+    const context = canvas.getContext("2d", { alpha: false });
+    drawFrame(context, state.frames[index]);
+  }
+
+  function updateFrameSelection() {
+    frameStrip.querySelectorAll(".frame-card").forEach((card) => {
+      const selected = Number(card.dataset.frame) === state.selectedFrame;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-current", String(selected));
+    });
+  }
+
+  function renderFrames() {
+    frameStrip.innerHTML = state.frames.map((_, index) => `
+      <button class="frame-card${index === state.selectedFrame ? " is-selected" : ""}" type="button" data-frame="${index}" role="listitem" aria-label="Frame ${index + 1}" aria-current="${index === state.selectedFrame}">
+        <canvas width="32" height="32"></canvas>
+        <span>${index + 1}</span>
+      </button>
+    `).join("") + `
+      <button class="add-frame" type="button" aria-label="Add frame"><span aria-hidden="true">+</span></button>
+    `;
+
+    frameStrip.querySelectorAll(".frame-card").forEach((card) => {
+      const index = Number(card.dataset.frame);
+      renderThumbnail(index);
+      card.addEventListener("click", () => selectFrame(index));
+    });
+
+    frameStrip.querySelector(".add-frame").addEventListener("click", () => {
+      state.frames.push(blankFrame());
+      state.selectedFrame = state.frames.length - 1;
+      saveLoop();
+      renderFrames();
+      renderCanvas();
+      requestAnimationFrame(() => frameStrip.scrollTo({ left: frameStrip.scrollWidth, behavior: "smooth" }));
+    });
+  }
+
+  function selectFrame(index) {
+    state.selectedFrame = index;
+    renderCanvas();
+    updateFrameSelection();
+  }
+
+  function setTool(tool) {
+    state.selectedTool = tool;
+    app.querySelectorAll(".tool-button").forEach((button) => {
+      const selected = button.dataset.tool === tool;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+
+  function setBrushSize(size) {
+    state.brushSize = size;
+    app.querySelectorAll(".brush-button").forEach((button) => {
+      const selected = Number(button.dataset.size) === size;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+
+  function cellFromPointer(event) {
+    const bounds = pixelCanvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(31, Math.floor(((event.clientX - bounds.left) / bounds.width) * GRID_SIZE))),
+      y: Math.max(0, Math.min(31, Math.floor(((event.clientY - bounds.top) / bounds.height) * GRID_SIZE))),
+    };
+  }
+
+  function applyAt(x, y) {
+    const frame = state.frames[state.selectedFrame];
+    if (state.selectedTool === "fill") {
+      state.frames[state.selectedFrame] = floodFill(frame, x, y, state.color);
+    } else {
+      const color = state.selectedTool === "eraser" ? null : state.color;
+      state.frames[state.selectedFrame] = paintSquare(frame, x, y, state.brushSize, color);
+    }
+  }
+
+  function applyPointer(event, continuous = false) {
+    const cell = cellFromPointer(event);
+    if (state.selectedTool === "eyedropper") {
+      const sampled = state.frames[state.selectedFrame][indexFor(cell.x, cell.y)];
+      if (sampled) {
+        state.color = sampled;
+        colorInput.value = sampled;
+        colorSwatch.style.background = sampled;
+        setTool("pencil");
+      }
+      return;
+    }
+
+    if (state.selectedTool === "fill") {
+      if (!continuous) applyAt(cell.x, cell.y);
+    } else {
+      const points = continuous && state.lastCell
+        ? linePoints(state.lastCell.x, state.lastCell.y, cell.x, cell.y)
+        : [cell];
+      points.forEach(({ x, y }) => applyAt(x, y));
+    }
+
+    state.lastCell = cell;
+    renderCanvas();
+    renderThumbnail(state.selectedFrame);
+  }
+
+  pixelCanvas.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    pixelCanvas.setPointerCapture(event.pointerId);
+    state.drawing = true;
+    state.lastCell = null;
+    applyPointer(event);
+    if (state.selectedTool === "fill" || state.selectedTool === "eyedropper") {
+      state.drawing = false;
+      saveLoop();
+    }
+  });
+
+  pixelCanvas.addEventListener("pointermove", (event) => {
+    if (!state.drawing || state.selectedTool === "fill" || state.selectedTool === "eyedropper") return;
+    event.preventDefault();
+    applyPointer(event, true);
+  });
+
+  function endDrawing() {
+    if (state.drawing) saveLoop();
+    state.drawing = false;
+    state.lastCell = null;
+  }
+
+  pixelCanvas.addEventListener("pointerup", endDrawing);
+  pixelCanvas.addEventListener("pointercancel", endDrawing);
+
+  app.querySelectorAll(".tool-button").forEach((button) => {
+    button.addEventListener("click", () => setTool(button.dataset.tool));
+  });
+
+  app.querySelectorAll(".brush-button").forEach((button) => {
+    button.addEventListener("click", () => setBrushSize(Number(button.dataset.size)));
+  });
+
+  colorInput.addEventListener("input", () => {
+    state.color = colorInput.value;
+    colorSwatch.style.background = state.color;
+    setTool("pencil");
+  });
+
+  app.querySelector(".duplicate-frame").addEventListener("click", () => {
+    state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
+    state.selectedFrame += 1;
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+  });
+
+  app.querySelector(".play-button").addEventListener("click", () => {
+    setPlaying(!state.playing, renderCanvas, updateFrameSelection);
+  });
+
+  app.querySelector(".back-action").addEventListener("click", () => {
+    stopPlayback();
+    location.hash = "";
+  });
+
+  app.querySelector(".share-button").addEventListener("click", shareLoop);
+  if (activeResizeHandler) window.removeEventListener("resize", activeResizeHandler);
+  activeResizeHandler = resizeCanvas;
+  window.addEventListener("resize", activeResizeHandler, { passive: true });
+
+  resizeCanvas();
+  renderCanvas();
+  renderFrames();
+}
+
+function stopPlayback() {
+  clearInterval(state.playTimer);
+  state.playTimer = null;
+  state.playing = false;
+}
+
+function setPlaying(playing, renderCanvas, updateFrameSelection) {
+  stopPlayback();
+  state.playing = playing;
+  const button = app.querySelector(".play-button");
+  button?.classList.toggle("is-playing", playing);
+  button?.setAttribute("aria-label", playing ? "Pause loop" : "Play loop");
+  if (playing) {
+    state.playTimer = setInterval(() => {
+      state.selectedFrame = (state.selectedFrame + 1) % state.frames.length;
+      renderCanvas();
+      updateFrameSelection();
+    }, 360);
+  }
+}
+
+function loopPng() {
+  const canvas = document.createElement("canvas");
+  const scale = 16;
+  canvas.width = GRID_SIZE * scale;
+  canvas.height = GRID_SIZE * scale;
+  const context = canvas.getContext("2d", { alpha: true });
+  context.imageSmoothingEnabled = false;
+  state.frames[state.selectedFrame].forEach((pixel, index) => {
+    if (!pixel) return;
+    context.fillStyle = pixel;
+    context.fillRect((index % GRID_SIZE) * scale, Math.floor(index / GRID_SIZE) * scale, scale, scale);
+  });
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+async function shareLoop() {
+  const blob = await loopPng();
+  if (!blob) return;
+  const safeName = (state.name || "piksel").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "piksel";
+  const file = new File([blob], `${safeName}.png`, { type: "image/png" });
+  const shareData = { files: [file], title: state.name || "Untitled", text: "Made with Piksel." };
+
+  try {
+    if (navigator.share && navigator.canShare?.(shareData)) {
+      await navigator.share(shareData);
+      showToast("Shared");
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = file.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    showToast("Saved as PNG");
+  } catch (error) {
+    if (error?.name !== "AbortError") showToast("Share didn’t open");
+  }
+}
+
+function showToast(message) {
+  const toast = app.querySelector(".status-toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add("is-visible");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 1800);
+}
+
+async function bitmapFor(file) {
+  if ("createImageBitmap" in window) return createImageBitmap(file);
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  URL.revokeObjectURL(url);
+  return image;
+}
+
+async function importPhoto(event) {
+  const [file] = event.target.files;
+  if (!file) return;
+  try {
+    const image = await bitmapFor(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = GRID_SIZE;
+    canvas.height = GRID_SIZE;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.imageSmoothingEnabled = false;
+    const side = Math.min(image.width, image.height);
+    const sourceX = Math.floor((image.width - side) / 2);
+    const sourceY = Math.floor((image.height - side) / 2);
+    context.drawImage(image, sourceX, sourceY, side, side, 0, 0, GRID_SIZE, GRID_SIZE);
+    image.close?.();
+    const pixels = context.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+    const frame = blankFrame();
+    for (let index = 0; index < PIXEL_COUNT; index += 1) {
+      const offset = index * 4;
+      if (pixels[offset + 3] < 48) continue;
+      const channel = (value) => Math.min(255, Math.round(value / 32) * 32);
+      const color = [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+        .map(channel)
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("");
+      frame[index] = `#${color}`;
+    }
+    const name = file.name.replace(/\.[^.]+$/, "").slice(0, 48) || "Photo loop";
+    useLoop({ name, frames: [frame] });
+  } catch {
+    showToast("Couldn’t read that photo");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function renderApp() {
+  if (location.hash === "#/editor") renderEditor();
+  else renderHome();
+}
+
+window.addEventListener("hashchange", renderApp);
+renderApp();
+
+if ("serviceWorker" in navigator && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
