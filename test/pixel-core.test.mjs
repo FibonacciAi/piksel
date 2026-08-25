@@ -11,6 +11,7 @@ import {
   linePoints,
   mirroredBrushCenter,
   paintSquare,
+  paintSquareInPlace,
   sparkleFrame,
   translateFrame,
 } from "../src/pixel-core.js";
@@ -36,6 +37,14 @@ test("square brushes stay clipped to the source grid", () => {
   const painted = paintSquare(blankFrame(), 0, 0, 4, "#ffffff");
   assert.equal(painted.filter(Boolean).length, 9);
   assert.equal(painted[indexFor(0, 0)], "#ffffff");
+});
+
+test("live strokes can paint in place without changing frame geometry", () => {
+  const frame = blankFrame();
+  const result = paintSquareInPlace(frame, 8, 8, 2, "#ffffff");
+  assert.equal(result, frame);
+  assert.equal(frame.length, PIXEL_COUNT);
+  assert.equal(frame.filter(Boolean).length, 4);
 });
 
 test("fill changes one connected region without crossing another color", () => {

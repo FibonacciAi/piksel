@@ -40,6 +40,7 @@ input {
 
 button {
   color: inherit;
+  touch-action: manipulation;
 }
 
 button:focus-visible,
@@ -83,7 +84,7 @@ input:focus-visible + span {
 }
 
 .loop-name {
-  max-width: 150px;
+  max-width: 116px;
   margin: 0;
   overflow: hidden;
   color: var(--text);
@@ -118,15 +119,21 @@ input:focus-visible + span {
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
+  transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease, transform 80ms ease;
 }
 
 .header-action,
 .icon-button {
-  display: inline-grid;
+  display: inline-flex;
   min-width: 42px;
   min-height: 42px;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
   border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .header-action:active,
@@ -141,6 +148,7 @@ input:focus-visible + span {
 .speed-button:active,
 .add-frame:active {
   background: rgba(255, 255, 255, 0.08);
+  transform: scale(0.96);
 }
 
 button:disabled {
@@ -218,7 +226,11 @@ button:disabled {
   flex: 0 0 auto;
   align-items: flex-start;
   justify-content: center;
-  padding: 10px 16px 11px;
+  padding: 8px 16px 5px;
+}
+
+.canvas-stack {
+  width: var(--canvas-size);
 }
 
 .canvas-stage {
@@ -229,8 +241,26 @@ button:disabled {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 7px;
   background: #15171a;
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   isolation: isolate;
+}
+
+.canvas-hud {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tool-status {
+  color: var(--accent);
 }
 
 .canvas-stage::after {
@@ -258,7 +288,7 @@ button:disabled {
   min-height: 0;
   width: 100%;
   margin-top: 0;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 12px calc(9px + env(safe-area-inset-bottom));
   overflow-y: auto;
   border-top: 1px solid var(--line);
   background: var(--surface);
@@ -284,7 +314,7 @@ button:disabled {
   flex: 1;
   gap: 8px;
   min-width: 0;
-  padding: 2px 2px 5px;
+  padding: 1px 2px 4px;
   overflow-x: auto;
   scrollbar-width: none;
   scroll-snap-type: x proximity;
@@ -303,7 +333,7 @@ button:disabled {
   height: 68px;
   padding: 0;
   place-items: start center;
-  border-radius: 7px;
+  border-radius: 8px;
   scroll-snap-align: start;
 }
 
@@ -318,6 +348,7 @@ button:disabled {
 
 .frame-card.is-selected canvas {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(255, 216, 77, 0.25);
 }
 
 .frame-card > span {
@@ -354,14 +385,14 @@ button:disabled {
 
 .tray-action {
   display: flex;
-  flex: 0 0 52px;
-  width: 52px;
-  height: 56px;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 68px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 6px;
-  border-radius: 9px;
+  gap: 5px;
+  border-radius: 8px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 650;
@@ -386,52 +417,20 @@ button:disabled {
   content: "";
 }
 
-.magic-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
-
-.magic-title {
-  display: flex;
-  flex: 0 0 50px;
-  align-items: center;
-  gap: 4px;
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.magic-title > span {
-  color: var(--accent);
-  font-size: 14px;
-}
-
-.magic-group {
-  display: grid;
-  flex: 1;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  min-width: 0;
-}
-
 .magic-button {
   display: flex;
   min-width: 0;
-  height: 36px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   gap: 3px;
   padding: 0 4px;
-  border: 1px solid rgba(255, 216, 77, 0.16);
+  border: 1px solid rgba(255, 216, 77, 0.24);
   border-radius: 8px;
-  background: rgba(255, 216, 77, 0.045);
-  color: #d8d4ca;
-  font-size: 10px;
-  font-weight: 680;
+  background: #17181b;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 720;
   white-space: nowrap;
 }
 
@@ -443,8 +442,8 @@ button:disabled {
 
 .drawing-controls {
   display: grid;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 7px;
+  padding-top: 7px;
   border-top: 1px solid var(--line);
 }
 
@@ -457,27 +456,27 @@ button:disabled {
 .tool-button {
   display: flex;
   min-width: 0;
-  height: 48px;
+  height: 46px;
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 0 7px;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 9px;
-  background: #111317;
-  color: #adb0b6;
+  background: #101216;
+  color: #b5b7bc;
   font-size: 12px;
   font-weight: 680;
 }
 
 .tool-button.is-selected {
-  border-color: rgba(255, 216, 77, 0.32);
-  background: var(--surface-raised);
-  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #181608;
 }
 
 .tool-button.is-selected .tool-icon {
-  color: var(--accent);
+  color: #181608;
 }
 
 .tool-icon {
@@ -489,7 +488,7 @@ button:disabled {
 }
 
 .color-row,
-.assist-row,
+.utility-row,
 .control-footer,
 .brush-control,
 .brush-group,
@@ -504,7 +503,7 @@ button:disabled {
 
 .color-row {
   min-width: 0;
-  gap: 8px;
+  gap: 7px;
 }
 
 .control-label {
@@ -525,9 +524,9 @@ button:disabled {
 .quick-color {
   position: relative;
   display: grid;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
+  flex: 0 0 31px;
+  width: 31px;
+  height: 31px;
   padding: 0;
   place-items: center;
   border: 2px solid transparent;
@@ -546,12 +545,15 @@ button:disabled {
 
 .quick-color.is-selected {
   border-color: var(--accent);
-  background: rgba(255, 216, 77, 0.08);
+  background: rgba(255, 216, 77, 0.12);
+  transform: translateY(-1px);
 }
 
-.assist-row {
+.utility-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   justify-content: space-between;
-  gap: 8px;
+  gap: 5px;
 }
 
 .helper-group,
@@ -561,7 +563,7 @@ button:disabled {
 
 .toggle-button,
 .speed-button {
-  height: 34px;
+  height: 36px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #111317;
@@ -575,7 +577,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 0 9px;
+  padding: 0 8px;
 }
 
 .toggle-button > span:first-child {
@@ -586,13 +588,13 @@ button:disabled {
 
 .toggle-button.is-selected,
 .speed-button.is-selected {
-  border-color: rgba(255, 216, 77, 0.42);
-  background: var(--surface-raised);
-  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #181608;
 }
 
 .toggle-button.is-selected > span:first-child {
-  color: var(--accent);
+  color: #181608;
 }
 
 .onion-icon {
@@ -620,8 +622,8 @@ button:disabled {
 
 .speed-button {
   display: grid;
-  flex: 0 0 29px;
-  width: 29px;
+  flex: 0 0 34px;
+  width: 34px;
   padding: 0;
   place-items: center;
   font-variant-numeric: tabular-nums;
@@ -723,9 +725,9 @@ button:disabled {
 .color-button {
   position: relative;
   display: flex;
-  flex: 0 0 56px;
-  width: 56px;
-  height: 32px;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 31px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -765,11 +767,11 @@ button:disabled {
 
 .utility-button {
   display: inline-flex;
-  height: 34px;
+  height: 36px;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 0 9px;
+  padding: 0 7px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #111317;
@@ -794,7 +796,7 @@ button:disabled {
   grid-template-rows: 11px 11px;
   flex: 0 0 32px;
   width: 32px;
-  height: 34px;
+  height: 36px;
   padding: 0;
   place-items: center;
   align-content: center;
@@ -807,9 +809,45 @@ button:disabled {
 }
 
 .brush-button.is-selected {
-  border-color: rgba(255, 216, 77, 0.42);
-  background: var(--surface-raised);
-  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #181608;
+}
+
+.motion-trigger {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #181608;
+  font-size: 11px;
+  font-weight: 780;
+  cursor: pointer;
+  transition: filter 100ms ease, transform 80ms ease;
+}
+
+.motion-trigger:active {
+  filter: brightness(0.9);
+  transform: scale(0.96);
+}
+
+.motion-panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid rgba(255, 216, 77, 0.22);
+  border-radius: 9px;
+  background: #101216;
+}
+
+.motion-panel[hidden] {
+  display: none;
 }
 
 .brush-square {
@@ -1066,6 +1104,17 @@ button:disabled {
     font-size: 11px;
   }
 
+  .loop-name {
+    max-width: 80px;
+  }
+
+  .header-action,
+  .icon-button {
+    gap: 3px;
+    padding-inline: 4px;
+    font-size: 9px;
+  }
+
   .quick-color {
     flex-basis: 27px;
     width: 27px;
@@ -1088,17 +1137,13 @@ button:disabled {
     width: 29px;
   }
 
+  .speed-button {
+    flex-basis: 30px;
+    width: 30px;
+  }
+
   .utility-button {
     padding-inline: 7px;
-  }
-
-  .magic-row {
-    gap: 6px;
-  }
-
-  .magic-title {
-    flex-basis: 44px;
-    font-size: 10px;
   }
 
   .magic-button {
@@ -1109,7 +1154,18 @@ button:disabled {
 
   .toggle-button {
     gap: 3px;
+    padding-inline: 5px;
+    font-size: 9px;
+  }
+
+  .utility-button {
+    padding-inline: 5px;
+    font-size: 9px;
+  }
+
+  .motion-trigger {
     padding-inline: 7px;
+    font-size: 9px;
   }
 }
 
@@ -1125,10 +1181,6 @@ button:disabled {
 
   .editor-tray {
     padding-top: 8px;
-  }
-
-  .magic-row {
-    padding-block: 6px;
   }
 
   .drawing-controls {
@@ -1158,5 +1210,6 @@ button:disabled {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
