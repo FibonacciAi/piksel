@@ -4,11 +4,13 @@ import {
   blankFrame,
   canvasMetrics,
   cloneFrame,
+  deleteFrameAt,
   effectFrames,
   floodFill,
   indexFor,
   linePoints,
   mirroredBrushCenter,
+  moveFrameAt,
   paintSquareInPlace,
 } from "./pixel-core.js";
 
@@ -36,7 +38,7 @@ const MAGIC_EFFECTS = [
   { id: "bounce", label: "Bounce", hint: "Up + down", symbol: "↕" },
   { id: "wiggle", label: "Wiggle", hint: "Side to side", symbol: "↔" },
   { id: "pulse", label: "Pulse", hint: "In + out", symbol: "◎" },
-  { id: "spark", label: "Spark", hint: "Twinkles", symbol: "✦" },
+  { id: "spark", label: "Spark", hint: "Makes stars", symbol: "✦" },
 ];
 const PLAYBACK_SPEEDS = [6, 12, 18];
 
@@ -360,6 +362,14 @@ function editorMarkup() {
         <div class="frames-row">
           <div class="frame-strip" role="list" aria-label="Frames"></div>
         </div>
+        <div class="frame-actions" role="group" aria-label="Selected frame actions">
+          <button class="frame-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
+            <span class="duplicate-icon" aria-hidden="true"></span><span>Copy</span>
+          </button>
+          <button class="frame-action move-frame-left" type="button" aria-label="Move selected frame earlier"><span aria-hidden="true">←</span><span>Earlier</span></button>
+          <button class="frame-action move-frame-right" type="button" aria-label="Move selected frame later"><span>Later</span><span aria-hidden="true">→</span></button>
+          <button class="frame-action delete-frame" type="button" aria-label="Delete selected frame"><span aria-hidden="true">×</span><span>Delete</span></button>
+        </div>
 
         <div class="drawing-controls">
           <div class="tool-group" role="toolbar" aria-label="Drawing tools">
@@ -394,10 +404,11 @@ function editorMarkup() {
               <button class="toggle-button mirror-button${state.mirror ? " is-selected" : ""}" type="button" aria-label="Mirror drawing" aria-pressed="${state.mirror}"><span aria-hidden="true">↔</span>Mirror</button>
               <button class="toggle-button onion-button${state.onionSkin ? " is-selected" : ""}" type="button" aria-label="Onion skin" aria-pressed="${state.onionSkin}"><span class="onion-icon" aria-hidden="true"></span>Onion</button>
             </div>
-            <button class="motion-trigger" type="button" aria-expanded="false" aria-controls="motion-panel"><span aria-hidden="true">✦</span>Animate</button>
+            <button class="motion-trigger" type="button" aria-expanded="false" aria-controls="motion-panel" aria-label="Open motion effects"><span aria-hidden="true">✦</span><span>Motion</span><span class="motion-chevron" aria-hidden="true">⌄</span></button>
           </div>
 
           <div class="motion-panel" id="motion-panel" aria-label="One-tap animation" hidden>
+            <div class="motion-copy"><strong>Make it move</strong><small>Choose an effect. Get 8 editable frames.</small></div>
             ${MAGIC_EFFECTS.map(({ id, label, hint, symbol }) => `
               <button class="magic-button" type="button" data-effect="${id}" aria-label="Make a ${label.toLowerCase()} loop">
                 <span aria-hidden="true">${symbol}</span><span><strong>${label}</strong><small>${hint}</small></span>
@@ -546,7 +557,17 @@ function renderEditor() {
       card.classList.toggle("is-selected", selected);
       card.setAttribute("aria-current", String(selected));
     });
+    updateFrameControls();
     updateHud();
+  }
+
+  function updateFrameControls() {
+    const leftButton = app.querySelector(".move-frame-left");
+    const rightButton = app.querySelector(".move-frame-right");
+    const deleteButton = app.querySelector(".delete-frame");
+    if (leftButton) leftButton.disabled = state.selectedFrame === 0;
+    if (rightButton) rightButton.disabled = state.selectedFrame === state.frames.length - 1;
+    if (deleteButton) deleteButton.disabled = state.frames.length <= 1;
   }
 
   function updateAssistControls() {
@@ -568,9 +589,6 @@ function renderEditor() {
       </button>
     `).join("") + `
       <button class="add-frame" type="button" aria-label="Add frame"><span aria-hidden="true">+</span><span>Frame</span></button>
-      <button class="tray-action duplicate-frame" type="button" aria-label="Duplicate selected frame">
-        <span class="duplicate-icon" aria-hidden="true"></span><span>Copy</span>
-      </button>
     `;
 
     frameStrip.querySelectorAll(".frame-card").forEach((card) => {
@@ -590,16 +608,8 @@ function renderEditor() {
       requestAnimationFrame(() => frameStrip.scrollTo({ left: frameStrip.scrollWidth }));
     });
 
-    frameStrip.querySelector(".duplicate-frame").addEventListener("click", () => {
-      const snapshot = captureSnapshot();
-      state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
-      state.selectedFrame += 1;
-      rememberSnapshot(snapshot);
-      saveLoop();
-      renderFrames();
-      renderCanvas();
-    });
     updateAssistControls();
+    updateFrameControls();
     updateHud();
   }
 
@@ -607,6 +617,51 @@ function renderEditor() {
     state.selectedFrame = index;
     renderCanvas();
     updateFrameSelection();
+  }
+
+  function duplicateSelectedFrame() {
+    const snapshot = captureSnapshot();
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.frames.splice(state.selectedFrame + 1, 0, cloneFrame(state.frames[state.selectedFrame]));
+    state.selectedFrame += 1;
+    state.motionName = null;
+    rememberSnapshot(snapshot);
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+    showToast("Frame copied");
+  }
+
+  function moveSelectedFrame(offset) {
+    const target = state.selectedFrame + offset;
+    if (target < 0 || target >= state.frames.length) return;
+    const snapshot = captureSnapshot();
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.frames = moveFrameAt(state.frames, state.selectedFrame, target);
+    state.selectedFrame = target;
+    state.motionName = null;
+    rememberSnapshot(snapshot);
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+    showToast(offset < 0 ? "Frame moved earlier" : "Frame moved later");
+  }
+
+  function deleteSelectedFrame() {
+    if (state.frames.length <= 1) {
+      showToast("Keep at least one frame");
+      return;
+    }
+    const snapshot = captureSnapshot();
+    setPlaying(false, renderCanvas, updateFrameSelection);
+    state.frames = deleteFrameAt(state.frames, state.selectedFrame);
+    state.selectedFrame = Math.min(state.selectedFrame, state.frames.length - 1);
+    state.motionName = null;
+    rememberSnapshot(snapshot);
+    saveLoop();
+    renderFrames();
+    renderCanvas();
+    showToast("Frame deleted · Undo available");
   }
 
   function setTool(tool) {
@@ -659,12 +714,19 @@ function renderEditor() {
     if (!magic) return;
     const snapshot = captureSnapshot();
     const source = cloneFrame(state.frames[state.selectedFrame]);
-    if (!source.some(Boolean)) {
+    if (!source.some(Boolean) && effect !== "spark") {
       showToast("Draw something first");
       return;
     }
     setPlaying(false, renderCanvas, updateFrameSelection);
-    state.frames = effectFrames(source, effect, state.color);
+    const filledPixels = source.filter(Boolean);
+    const selectedColorShare = filledPixels.length
+      ? filledPixels.filter((pixel) => pixel?.toLowerCase() === state.color.toLowerCase()).length / filledPixels.length
+      : 0;
+    const sparkColor = state.color.toLowerCase() === "#202126"
+      ? "#ffd84d"
+      : selectedColorShare > 0.35 ? "#f6f2e8" : state.color;
+    state.frames = effectFrames(source, effect, effect === "spark" ? sparkColor : state.color);
     state.selectedFrame = 0;
     state.motionName = magic.label;
     rememberSnapshot(snapshot);
@@ -801,12 +863,18 @@ function renderEditor() {
     setColor(colorInput.value);
   });
 
+  app.querySelector(".duplicate-frame").addEventListener("click", duplicateSelectedFrame);
+  app.querySelector(".move-frame-left").addEventListener("click", () => moveSelectedFrame(-1));
+  app.querySelector(".move-frame-right").addEventListener("click", () => moveSelectedFrame(1));
+  app.querySelector(".delete-frame").addEventListener("click", deleteSelectedFrame);
+
   app.querySelector(".mirror-button").addEventListener("click", () => setMirror(!state.mirror));
   app.querySelector(".onion-button").addEventListener("click", () => setOnionSkin(!state.onionSkin));
   app.querySelector(".motion-trigger").addEventListener("click", (event) => {
     const panel = app.querySelector(".motion-panel");
     const expanded = event.currentTarget.getAttribute("aria-expanded") === "true";
     event.currentTarget.setAttribute("aria-expanded", String(!expanded));
+    event.currentTarget.setAttribute("aria-label", expanded ? "Open motion effects" : "Close motion effects");
     panel.hidden = expanded;
   });
 

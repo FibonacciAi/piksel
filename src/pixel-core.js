@@ -9,6 +9,25 @@ export function cloneFrame(frame) {
   return frame.slice(0, PIXEL_COUNT);
 }
 
+export function deleteFrameAt(frames, index) {
+  const next = frames.map(cloneFrame);
+  if (next.length <= 1 || index < 0 || index >= next.length) return next;
+  next.splice(index, 1);
+  return next;
+}
+
+export function moveFrameAt(frames, fromIndex, toIndex) {
+  const next = frames.map(cloneFrame);
+  if (
+    fromIndex < 0 || fromIndex >= next.length
+    || toIndex < 0 || toIndex >= next.length
+    || fromIndex === toIndex
+  ) return next;
+  const [frame] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, frame);
+  return next;
+}
+
 export function indexFor(x, y) {
   return y * GRID_SIZE + x;
 }
